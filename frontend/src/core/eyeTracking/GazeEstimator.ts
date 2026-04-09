@@ -1,23 +1,23 @@
 import type { IrisLandmarks, CalibrationData, HeadPose } from './types'
 import { CONFIG } from '@/config'
 
-// MediaPipe landmark indices
-const LEFT_EYE_INNER = 133
-const LEFT_EYE_OUTER = 33
-const LEFT_EYE_TOP = 159
+// ── MediaPipe landmark indices ──────────────────────────────────────────────
+const LEFT_EYE_INNER  = 133
+const LEFT_EYE_OUTER  = 33
+const LEFT_EYE_TOP    = 159
 const LEFT_EYE_BOTTOM = 145
 const LEFT_IRIS_CENTER = 468
 
-const RIGHT_EYE_INNER = 362
-const RIGHT_EYE_OUTER = 263
-const RIGHT_EYE_TOP = 386
+const RIGHT_EYE_INNER  = 362
+const RIGHT_EYE_OUTER  = 263
+const RIGHT_EYE_TOP    = 386
 const RIGHT_EYE_BOTTOM = 374
 const RIGHT_IRIS_CENTER = 473
 
-// Nose tip and chin for rough head pose
-const NOSE_TIP = 1
-const CHIN = 152
-const LEFT_EAR = 234
+// Head pose reference points
+const NOSE_TIP  = 1
+const CHIN      = 152
+const LEFT_EAR  = 234
 const RIGHT_EAR = 454
 
 type Landmark = { x: number; y: number; z: number }
@@ -35,89 +35,102 @@ export class GazeEstimator {
   }
 
   extractIrisLandmarks(landmarks: Landmark[]): IrisLandmarks {
-    // ---- Left eye ----
-    const lInner = landmarks[LEFT_EYE_INNER]
-    const lOuter = landmarks[LEFT_EYE_OUTER]
-    const lTop = landmarks[LEFT_EYE_TOP]
-    const lBottom = landmarks[LEFT_EYE_BOTTOM]
-    const lIris = landmarks[LEFT_IRIS_CENTER]
+    const lInner  = landmarks[LEFT_EYE_INNER]!
+    const lOuter  = landmarks[LEFT_EYE_OUTER]!
+    const lTop    = landmarks[LEFT_EYE_TOP]!
+    const lBottom = landmarks[LEFT_EYE_BOTTOM]!
+    const lIris   = landmarks[LEFT_IRIS_CENTER]!
 
-    const lWidth = Math.abs(lInner.x - lOuter.x)
-    const lHeight = Math.abs(lTop.y - lBottom.y)
-    const lRatioX = lWidth > 1e-6 ? (lIris.x - lOuter.x) / lWidth : 0.5
-    const lRatioY = lHeight > 1e-6 ? (lIris.y - lTop.y) / lHeight : 0.5
-    const lOpenness = lWidth > 1e-6 ? lHeight / lWidth : 0
+    const lWidth    = Math.abs(lInner.x - lOuter.x)
+    const lHeight   = Math.abs(lTop.y - lBottom.y)
+    const lRatioX   = lWidth  > 1e-6 ? (lIris.x - lOuter.x) / lWidth  : 0.5
+    const lRatioY   = lHeight > 1e-6 ? (lIris.y - lTop.y)   / lHeight : 0.5
+    const lOpenness = lWidth  > 1e-6 ? lHeight / lWidth : 0
 
-    // ---- Right eye ----
-    const rInner = landmarks[RIGHT_EYE_INNER]
-    const rOuter = landmarks[RIGHT_EYE_OUTER]
-    const rTop = landmarks[RIGHT_EYE_TOP]
-    const rBottom = landmarks[RIGHT_EYE_BOTTOM]
-    const rIris = landmarks[RIGHT_IRIS_CENTER]
+    const rInner  = landmarks[RIGHT_EYE_INNER]!
+    const rOuter  = landmarks[RIGHT_EYE_OUTER]!
+    const rTop    = landmarks[RIGHT_EYE_TOP]!
+    const rBottom = landmarks[RIGHT_EYE_BOTTOM]!
+    const rIris   = landmarks[RIGHT_IRIS_CENTER]!
 
-    const rWidth = Math.abs(rInner.x - rOuter.x)
-    const rHeight = Math.abs(rTop.y - rBottom.y)
-    const rRatioX = rWidth > 1e-6 ? (rIris.x - rOuter.x) / rWidth : 0.5
-    const rRatioY = rHeight > 1e-6 ? (rIris.y - rTop.y) / rHeight : 0.5
-    const rOpenness = rWidth > 1e-6 ? rHeight / rWidth : 0
+    const rWidth    = Math.abs(rInner.x - rOuter.x)
+    const rHeight   = Math.abs(rTop.y - rBottom.y)
+    const rRatioX   = rWidth  > 1e-6 ? (rIris.x - rOuter.x) / rWidth  : 0.5
+    const rRatioY   = rHeight > 1e-6 ? (rIris.y - rTop.y)   / rHeight : 0.5
+    const rOpenness = rWidth  > 1e-6 ? rHeight / rWidth : 0
 
     const avgOpenness = (lOpenness + rOpenness) / 2
-    const isBlinking = avgOpenness < CONFIG.eyeTracking.blinkThreshold
+    const isBlinking  = avgOpenness < CONFIG.eyeTracking.blinkThreshold
 
     return {
-      leftIrisCenter: { x: lIris.x, y: lIris.y },
+      leftIrisCenter:  { x: lIris.x, y: lIris.y },
       rightIrisCenter: { x: rIris.x, y: rIris.y },
-      leftIrisRatio: { x: lRatioX, y: lRatioY },
-      rightIrisRatio: { x: rRatioX, y: rRatioY },
-      leftEyeOpenness: lOpenness,
+      leftIrisRatio:   { x: lRatioX,  y: lRatioY },
+      rightIrisRatio:  { x: rRatioX,  y: rRatioY },
+      leftEyeOpenness:  lOpenness,
       rightEyeOpenness: rOpenness,
       isBlinking,
     }
   }
 
   estimateHeadPose(landmarks: Landmark[]): HeadPose {
-    const nose = landmarks[NOSE_TIP]
-    const chin = landmarks[CHIN]
-    const lEar = landmarks[LEFT_EAR]
-    const rEar = landmarks[RIGHT_EAR]
+    const nose  = landmarks[NOSE_TIP]!
+    const chin  = landmarks[CHIN]!
+    const lEar  = landmarks[LEFT_EAR]!
+    const rEar  = landmarks[RIGHT_EAR]!
 
-    const pitch = Math.atan2(chin.y - nose.y, chin.z - nose.z)
-    const yaw = Math.atan2(rEar.x - lEar.x, rEar.z - lEar.z)
-    const roll = Math.atan2(rEar.y - lEar.y, rEar.x - lEar.x)
+    const pitch = Math.atan2(chin.y - nose.y, Math.abs(chin.z - nose.z) + 1e-6)
+    const yaw   = Math.atan2(rEar.x - lEar.x, Math.abs(rEar.z - lEar.z) + 1e-6)
+    const roll  = Math.atan2(rEar.y - lEar.y,  rEar.x - lEar.x)
 
     return { pitch, yaw, roll }
   }
 
-  /** Average the iris ratio of both eyes */
-  private averageIrisRatio(iris: IrisLandmarks): { x: number; y: number } {
+  private averageIrisRatio(iris: IrisLandmarks) {
+    // Use the more open eye as primary to reduce noise
+    const lOpen = iris.leftEyeOpenness
+    const rOpen = iris.rightEyeOpenness
+    const total = lOpen + rOpen + 1e-9
+    const wL = lOpen / total
+    const wR = rOpen / total
     return {
-      x: (iris.leftIrisRatio.x + iris.rightIrisRatio.x) / 2,
-      y: (iris.leftIrisRatio.y + iris.rightIrisRatio.y) / 2,
+      x: wL * iris.leftIrisRatio.x + wR * iris.rightIrisRatio.x,
+      y: wL * iris.leftIrisRatio.y + wR * iris.rightIrisRatio.y,
     }
   }
 
   /**
-   * Map iris ratio to screen coordinates using the calibration polynomial.
-   * Returns null if not calibrated.
+   * Map iris ratio + head pose → screen coordinates via calibration polynomial.
+   * Returns null if uncalibrated.
    */
-  irisToScreen(iris: IrisLandmarks): { x: number; y: number } | null {
+  irisToScreen(iris: IrisLandmarks, headPose?: HeadPose): { x: number; y: number } | null {
     if (!this.calibration) return null
 
     const ratio = this.averageIrisRatio(iris)
-    const x = evalPoly2D(this.calibration.coeffsX, ratio.x, ratio.y)
-    const y = evalPoly2D(this.calibration.coeffsY, ratio.x, ratio.y)
+    const yaw   = headPose?.yaw   ?? 0
+    const pitch = headPose?.pitch ?? 0
+
+    const x = evalPolyHP(this.calibration.coeffsX, ratio.x, ratio.y, yaw, pitch)
+    const y = evalPolyHP(this.calibration.coeffsY, ratio.x, ratio.y, yaw, pitch)
 
     return { x, y }
   }
 
-  /** Build calibration from collected samples using polynomial regression */
+  /** Fit calibration from collected samples (includes head pose) */
   static buildCalibration(
-    samples: Array<{ targetX: number; targetY: number; irisRatioX: number; irisRatioY: number }>,
+    samples: Array<{
+      targetX: number; targetY: number
+      irisRatioX: number; irisRatioY: number
+      headYaw: number; headPitch: number
+    }>,
     screenWidth: number,
     screenHeight: number,
   ): CalibrationData {
-    const coeffsX = fitPoly2D(samples.map(s => [s.irisRatioX, s.irisRatioY, s.targetX]))
-    const coeffsY = fitPoly2D(samples.map(s => [s.irisRatioX, s.irisRatioY, s.targetY]))
+    const rows = samples.map(s => [s.irisRatioX, s.irisRatioY, s.headYaw, s.headPitch, s.targetX])
+    const coeffsX = fitPolyHP(rows.map(r => [r[0]!, r[1]!, r[2]!, r[3]!, r[4]!]))
+
+    const rowsY = samples.map(s => [s.irisRatioX, s.irisRatioY, s.headYaw, s.headPitch, s.targetY])
+    const coeffsY = fitPolyHP(rowsY.map(r => [r[0]!, r[1]!, r[2]!, r[3]!, r[4]!]))
 
     return {
       samples,
@@ -130,66 +143,63 @@ export class GazeEstimator {
   }
 }
 
-// ---- Polynomial regression helpers (degree-2, bivariate) ----
-// Features: [1, x, y, x^2, x*y, y^2]
+// ── Head-pose polynomial helpers ────────────────────────────────────────────
+//
+// Features (10):
+//   [1, rx, ry, rx², rx·ry, ry², yaw, pitch, yaw·rx, pitch·ry]
+//
+// This lets the model compensate for perspective distortion caused by head rotation.
 
-function buildFeatures(x: number, y: number): number[] {
-  return [1, x, y, x * x, x * y, y * y]
+function buildFeaturesHP(rx: number, ry: number, yaw: number, pitch: number): number[] {
+  return [1, rx, ry, rx * rx, rx * ry, ry * ry, yaw, pitch, yaw * rx, pitch * ry]
 }
 
-function evalPoly2D(coeffs: number[], x: number, y: number): number {
-  const feats = buildFeatures(x, y)
+function evalPolyHP(coeffs: number[], rx: number, ry: number, yaw: number, pitch: number): number {
+  const feats = buildFeaturesHP(rx, ry, yaw, pitch)
   return feats.reduce((sum, f, i) => sum + f * (coeffs[i] ?? 0), 0)
 }
 
-/**
- * Ordinary least squares for bivariate degree-2 polynomial.
- * data: array of [x, y, target]
- */
-function fitPoly2D(data: Array<[number, number, number]>): number[] {
+/** OLS fit: data = [[rx, ry, yaw, pitch, target], ...] */
+function fitPolyHP(data: Array<[number, number, number, number, number]>): number[] {
   const n = data.length
-  const numFeats = 6
+  const numF = 10
 
-  // Build design matrix A (n x 6) and target vector b (n)
-  const A: number[][] = data.map(([x, y]) => buildFeatures(x, y))
-  const b: number[] = data.map(([, , t]) => t)
+  const A = data.map(([rx, ry, yaw, pitch]) => buildFeaturesHP(rx, ry, yaw, pitch))
+  const b = data.map(([, , , , t]) => t)
 
-  // Normal equations: (A^T A) coeffs = A^T b
-  const AtA = matMul(transpose(A), A, numFeats, n, numFeats)
-  const Atb = matVecMul(transpose(A), b, numFeats, n)
+  const At = transpose(A)
+  const AtA = matMul(At, A, numF, n, numF)
+  const Atb = matVecMul(At, b, numF, n)
 
   return gaussianElimination(AtA, Atb)
 }
 
+// ── Linear algebra ───────────────────────────────────────────────────────────
+
 function transpose(m: number[][]): number[][] {
-  const rows = m.length
-  const cols = m[0]?.length ?? 0
+  const rows = m.length, cols = m[0]?.length ?? 0
   return Array.from({ length: cols }, (_, j) =>
-    Array.from({ length: rows }, (_, i) => m[i]![j]!),
-  )
+    Array.from({ length: rows }, (_, i) => m[i]![j]!))
 }
 
 function matMul(A: number[][], B: number[][], rows: number, inner: number, cols: number): number[][] {
   return Array.from({ length: rows }, (_, i) =>
     Array.from({ length: cols }, (_, j) =>
-      Array.from({ length: inner }, (_, k) => (A[i]![k] ?? 0) * (B[k]![j] ?? 0)).reduce((s, v) => s + v, 0),
-    ),
-  )
+      Array.from({ length: inner }, (_, k) => (A[i]![k] ?? 0) * (B[k]![j] ?? 0))
+        .reduce((s, v) => s + v, 0)))
 }
 
 function matVecMul(A: number[][], b: number[], rows: number, cols: number): number[] {
   return Array.from({ length: rows }, (_, i) =>
-    Array.from({ length: cols }, (_, j) => (A[i]![j] ?? 0) * (b[j] ?? 0)).reduce((s, v) => s + v, 0),
-  )
+    Array.from({ length: cols }, (_, j) => (A[i]![j] ?? 0) * (b[j] ?? 0))
+      .reduce((s, v) => s + v, 0))
 }
 
 function gaussianElimination(A: number[][], b: number[]): number[] {
   const n = b.length
-  // Augmented matrix
   const M = A.map((row, i) => [...row, b[i]!])
 
   for (let col = 0; col < n; col++) {
-    // Partial pivoting
     let maxRow = col
     for (let row = col + 1; row < n; row++) {
       if (Math.abs(M[row]![col]!) > Math.abs(M[maxRow]![col]!)) maxRow = row
@@ -202,9 +212,7 @@ function gaussianElimination(A: number[][], b: number[]): number[] {
     for (let row = 0; row < n; row++) {
       if (row === col) continue
       const factor = M[row]![col]! / pivot
-      for (let k = col; k <= n; k++) {
-        M[row]![k]! -= factor * M[col]![k]!
-      }
+      for (let k = col; k <= n; k++) M[row]![k]! -= factor * M[col]![k]!
     }
   }
 

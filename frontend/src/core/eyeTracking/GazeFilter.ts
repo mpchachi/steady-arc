@@ -1,11 +1,72 @@
 import { CONFIG } from '@/config'
-import type { GazePoint } from './types'
+
+// ── 1D Kalman filter (constant-velocity model) ───────────────────────────────
+//
+// State:       [position (px), velocity (px/s)]
+// Transition:  F = [[1, dt], [0, 1]]
+// Observation: H = [1, 0]  (we observe position directly)
+// Process noise Q affects only velocity (position is deterministic given velocity)
+// Measurement noise R = measurement variance in px²
+
+class Kalman1D {
+  private state = [0, 0]                   // [pos, vel]
+  private P = [[100, 0], [0, 100]]         // error covariance
+
+  constructor(
+    private R: number,          // measurement noise variance (px²)
+    private sigmaVel: number,   // velocity process noise std (px/s per √s)
+  ) {}
+
+  get position(): number { return this.state[0]! }
+  get velocity(): number { return this.state[1]! }
+
+  update(measurement: number, dt: number): number {
+    if (!Number.isFinite(measurement)) return this.state[0]!
+
+    const dt2 = dt * dt
+    const qVel = this.sigmaVel * this.sigmaVel * dt  // Q[1][1]
+
+    // ── Predict ─────────────────────────────────────────────────────────────
+    const xPred = this.state[0]! + this.state[1]! * dt
+    const vPred = this.state[1]!
+
+    // P_pred = F * P * F^T + Q
+    //   F = [[1, dt], [0, 1]]
+    //   Q = [[0, 0], [0, qVel]]
+    const p00 = this.P[0]![0]! + dt * (this.P[1]![0]! + this.P[0]![1]!) + dt2 * this.P[1]![1]!
+    const p01 = this.P[0]![1]! + dt * this.P[1]![1]!
+    const p10 = this.P[1]![0]! + dt * this.P[1]![1]!
+    const p11 = this.P[1]![1]! + qVel
+
+    // ── Update ──────────────────────────────────────────────────────────────
+    // H = [1, 0]  →  S = H * P_pred * H^T + R = p00 + R
+    const S  = p00 + this.R
+    const k0 = p00 / S   // Kalman gain for position
+    const k1 = p10 / S   // Kalman gain for velocity
+
+    const innovation = measurement - xPred
+
+    this.state[0] = xPred + k0 * innovation
+    this.state[1] = vPred + k1 * innovation
+
+    // P = (I - K * H) * P_pred
+    this.P[0]![0] = (1 - k0) * p00
+    this.P[0]![1] = (1 - k0) * p01
+    this.P[1]![0] = p10 - k1 * p00
+    this.P[1]![1] = p11 - k1 * p01
+
+    return this.state[0]!
+  }
+
+  resetTo(pos: number): void {
+    this.state = [pos, 0]
+    this.P = [[100, 0], [0, 100]]
+  }
+}
+
+// ── Main gaze filter ─────────────────────────────────────────────────────────
 
 interface FilterState {
-  x: number
-  y: number
-  lastTimestamp: number
-  lastVelocity: number
   fixationStartX: number
   fixationStartY: number
   fixationStartTime: number
@@ -13,82 +74,76 @@ interface FilterState {
 
 /** Pure class — no React dependency */
 export class GazeFilter {
-  private alpha: number
-  private state: FilterState | null = null
+  private xKalman: Kalman1D
+  private yKalman: Kalman1D
+  private lastTimestamp: number | null = null
+  private initialized = false
+  private fixation: FilterState | null = null
 
-  constructor(alpha: number = CONFIG.eyeTracking.emaAlpha) {
-    this.alpha = alpha
-  }
-
-  setAlpha(alpha: number): void {
-    this.alpha = Math.max(0, Math.min(1, alpha))
+  constructor() {
+    this.xKalman = new Kalman1D(
+      CONFIG.eyeTracking.kalmanMeasurementNoise,
+      CONFIG.eyeTracking.kalmanVelocityNoise,
+    )
+    this.yKalman = new Kalman1D(
+      CONFIG.eyeTracking.kalmanMeasurementNoise,
+      CONFIG.eyeTracking.kalmanVelocityNoise,
+    )
   }
 
   reset(): void {
-    this.state = null
+    this.xKalman.resetTo(0)
+    this.yKalman.resetTo(0)
+    this.lastTimestamp = null
+    this.initialized = false
+    this.fixation = null
   }
 
   /**
-   * Feed a raw gaze estimate. Returns the filtered GazePoint.
-   * rawX, rawY are in screen pixels.
+   * Feed a raw gaze point. Returns the Kalman-filtered result.
+   * rawX/Y: screen pixels.  timestamp: performance.now() (ms).
    */
-  process(rawX: number, rawY: number, isBlinking: boolean, timestamp: number): Omit<GazePoint, 'confidence'> {
-    if (this.state === null) {
-      this.state = {
-        x: rawX,
-        y: rawY,
-        lastTimestamp: timestamp,
-        lastVelocity: 0,
-        fixationStartX: rawX,
-        fixationStartY: rawY,
-        fixationStartTime: timestamp,
+  process(
+    rawX: number,
+    rawY: number,
+    isBlinking: boolean,
+    timestamp: number,
+  ): { rawX: number; rawY: number; filteredX: number; filteredY: number; velocityPxS: number; isSaccade: boolean; isBlinking: boolean; timestamp: number } {
+    if (!this.initialized) {
+      this.xKalman.resetTo(rawX)
+      this.yKalman.resetTo(rawY)
+      this.initialized = true
+      this.lastTimestamp = timestamp
+      this.fixation = { fixationStartX: rawX, fixationStartY: rawY, fixationStartTime: timestamp }
+    }
+
+    const dt = Math.max((timestamp - (this.lastTimestamp ?? timestamp)) / 1000, 0.001) // seconds
+    this.lastTimestamp = timestamp
+
+    const filteredX = this.xKalman.update(rawX, dt)
+    const filteredY = this.yKalman.update(rawY, dt)
+
+    const vx = this.xKalman.velocity
+    const vy = this.yKalman.velocity
+    const velocityPxS = Math.sqrt(vx * vx + vy * vy)
+    const isSaccade = velocityPxS > CONFIG.eyeTracking.saccadeVelocityThreshold
+
+    // Fixation tracking (reset when gaze drifts too far)
+    if (!this.fixation) {
+      this.fixation = { fixationStartX: filteredX, fixationStartY: filteredY, fixationStartTime: timestamp }
+    } else {
+      const dx = filteredX - this.fixation.fixationStartX
+      const dy = filteredY - this.fixation.fixationStartY
+      if (Math.sqrt(dx * dx + dy * dy) > CONFIG.eyeTracking.fixationRadiusPx || isSaccade) {
+        this.fixation = { fixationStartX: filteredX, fixationStartY: filteredY, fixationStartTime: timestamp }
       }
     }
 
-    const dt = Math.max(timestamp - this.state.lastTimestamp, 1)
-
-    // EMA
-    const filteredX = this.alpha * rawX + (1 - this.alpha) * this.state.x
-    const filteredY = this.alpha * rawY + (1 - this.alpha) * this.state.y
-
-    // Velocity in px/ms
-    const dx = filteredX - this.state.x
-    const dy = filteredY - this.state.y
-    const velocity = Math.sqrt(dx * dx + dy * dy) / dt
-
-    const isSaccade = velocity > CONFIG.eyeTracking.saccadeVelocityThreshold
-
-    // Update fixation tracker
-    const distFromFixationStart = Math.sqrt(
-      (filteredX - this.state.fixationStartX) ** 2 +
-      (filteredY - this.state.fixationStartY) ** 2,
-    )
-    const fixationRadiusPx = CONFIG.eyeTracking.fixationRadius * window.innerWidth
-    if (distFromFixationStart > fixationRadiusPx) {
-      this.state.fixationStartX = filteredX
-      this.state.fixationStartY = filteredY
-      this.state.fixationStartTime = timestamp
-    }
-
-    this.state.x = filteredX
-    this.state.y = filteredY
-    this.state.lastTimestamp = timestamp
-    this.state.lastVelocity = velocity
-
-    return {
-      rawX,
-      rawY,
-      filteredX,
-      filteredY,
-      isSaccade,
-      isBlinking,
-      timestamp,
-    }
+    return { rawX, rawY, filteredX, filteredY, velocityPxS, isSaccade, isBlinking, timestamp }
   }
 
-  /** Returns the current fixation duration in ms, or 0 if no stable fixation */
   getFixationDuration(now: number): number {
-    if (!this.state) return 0
-    return now - this.state.fixationStartTime
+    if (!this.fixation) return 0
+    return now - this.fixation.fixationStartTime
   }
 }

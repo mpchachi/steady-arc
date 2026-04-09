@@ -1,5 +1,5 @@
 import React, { createContext, useContext, useEffect, useRef, useState, useCallback } from 'react'
-import type { IrisLandmarks } from './types'
+import type { IrisLandmarks, HeadPose } from './types'
 import { GazeEstimator } from './GazeEstimator'
 import { CONFIG } from '@/config'
 
@@ -9,10 +9,10 @@ type AnyObj = any
 interface FaceMeshContextValue {
   estimator: GazeEstimator
   irisLandmarks: IrisLandmarks | null
+  headPose: HeadPose | null
   isReady: boolean
   fps: number
   cameraError: string | null
-  /** The actual video element used by MediaPipe (for stream mirroring in preview) */
   videoElement: HTMLVideoElement | null
 }
 
@@ -24,19 +24,18 @@ export function useFaceMesh(): FaceMeshContextValue {
   return ctx
 }
 
-interface Props {
-  children: React.ReactNode
-}
+interface Props { children: React.ReactNode }
 
 export function FaceMeshProvider({ children }: Props) {
-  // Internal ref — never shared. Camera and faceMesh own this element.
-  const videoRef = useRef<HTMLVideoElement>(null)
-  const estimatorRef = useRef(new GazeEstimator())
+  const videoRef      = useRef<HTMLVideoElement>(null)
+  const estimatorRef  = useRef(new GazeEstimator())
+
   const [irisLandmarks, setIrisLandmarks] = useState<IrisLandmarks | null>(null)
-  const [isReady, setIsReady] = useState(false)
-  const [fps, setFps] = useState(0)
-  const [videoElement, setVideoElement] = useState<HTMLVideoElement | null>(null)
-  const [cameraError, setCameraError] = useState<string | null>(null)
+  const [headPose,      setHeadPose]      = useState<HeadPose | null>(null)
+  const [isReady,       setIsReady]       = useState(false)
+  const [fps,           setFps]           = useState(0)
+  const [videoElement,  setVideoElement]  = useState<HTMLVideoElement | null>(null)
+  const [cameraError,   setCameraError]   = useState<string | null>(null)
 
   const fpsCounterRef = useRef({ frames: 0, lastTime: performance.now() })
 
@@ -52,22 +51,23 @@ export function FaceMeshProvider({ children }: Props) {
 
     if (!results.multiFaceLandmarks || results.multiFaceLandmarks.length === 0) {
       setIrisLandmarks(null)
+      setHeadPose(null)
       return
     }
 
     const landmarks = results.multiFaceLandmarks[0]
-    const iris = estimatorRef.current.extractIrisLandmarks(landmarks)
-    setIrisLandmarks(iris)
+    setIrisLandmarks(estimatorRef.current.extractIrisLandmarks(landmarks))
+    setHeadPose(estimatorRef.current.estimateHeadPose(landmarks))
   }, [])
 
   useEffect(() => {
     let faceMesh: AnyObj | null = null
-    let camera: AnyObj | null = null
+    let camera:   AnyObj | null = null
     let stopped = false
 
     async function init() {
       const { FaceMesh } = await import('@mediapipe/face_mesh')
-      const { Camera } = await import('@mediapipe/camera_utils')
+      const { Camera }   = await import('@mediapipe/camera_utils')
 
       if (stopped || !videoRef.current) return
 
@@ -85,14 +85,11 @@ export function FaceMeshProvider({ children }: Props) {
 
       faceMesh.onResults(handleResults)
 
-      // Capture a stable reference to the DOM element before Camera touches it
       const vid = videoRef.current
 
       camera = new Camera(vid, {
         onFrame: async () => {
-          if (!stopped && faceMesh) {
-            await faceMesh.send({ image: vid })
-          }
+          if (!stopped && faceMesh) await faceMesh.send({ image: vid })
         },
         width: 640,
         height: 480,
@@ -102,7 +99,7 @@ export function FaceMeshProvider({ children }: Props) {
 
       if (!stopped) {
         setIsReady(true)
-        setVideoElement(vid) // expose to context for preview mirroring
+        setVideoElement(vid)
       }
     }
 
@@ -116,7 +113,6 @@ export function FaceMeshProvider({ children }: Props) {
       } else {
         setCameraError(`Error de cámara: ${msg}`)
       }
-      console.error('[FaceMeshProvider]', err)
     })
 
     return () => {
@@ -127,26 +123,16 @@ export function FaceMeshProvider({ children }: Props) {
   }, [handleResults])
 
   return (
-    <FaceMeshContext.Provider
-      value={{
-        estimator: estimatorRef.current,
-        irisLandmarks,
-        isReady,
-        fps,
-        cameraError,
-        videoElement,
-      }}
-    >
-      {/*
-        This video element is INTERNAL — it must never receive a second ref.
-        WebcamPreview mirrors the stream via srcObject, not via this ref.
-      */}
-      <video
-        ref={videoRef}
-        style={{ display: 'none' }}
-        playsInline
-        muted
-      />
+    <FaceMeshContext.Provider value={{
+      estimator: estimatorRef.current,
+      irisLandmarks,
+      headPose,
+      isReady,
+      fps,
+      cameraError,
+      videoElement,
+    }}>
+      <video ref={videoRef} style={{ display: 'none' }} playsInline muted />
       {children}
     </FaceMeshContext.Provider>
   )

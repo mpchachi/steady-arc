@@ -55,9 +55,11 @@ function AppInner() {
         return
       }
 
-      // Sanity check 2: coefficients must be finite numbers
+      // Sanity check 2: must have correct number of coefficients (v2 = 10 each)
+      // and all must be finite numbers
       const allFinite = [...cal.coeffsX, ...cal.coeffsY].every(Number.isFinite)
-      if (!allFinite) {
+      const rightLength = cal.coeffsX.length === 10 && cal.coeffsY.length === 10
+      if (!allFinite || !rightLength) {
         localStorage.removeItem(CONFIG.calibration.localStorageKey)
         return
       }
