@@ -2,7 +2,7 @@
 
 // ── Eyedid (SeeSo) license key ───────────────────────────────────────────────
 // Get yours free at https://manage.seeso.io
-export const SEESO_LICENSE_KEY = 'YOUR_LICENSE_KEY'
+export const SEESO_LICENSE_KEY = import.meta.env.VITE_SEESO_LICENSE_KEY ?? 'YOUR_LICENSE_KEY'
 
 export const CONFIG = {
   eyeTracking: {
