@@ -1,5 +1,9 @@
 // Centralized configuration for the rehab platform
 
+// ── Eyedid (SeeSo) license key ───────────────────────────────────────────────
+// Get yours free at https://manage.seeso.io
+export const SEESO_LICENSE_KEY = 'YOUR_LICENSE_KEY'
+
 export const CONFIG = {
   eyeTracking: {
     // Kalman measurement noise (px² — higher = smoother but slower)

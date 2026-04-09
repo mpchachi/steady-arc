@@ -1,20 +1,19 @@
 import React from 'react'
-import { CalibrationFlow } from '@/core/eyeTracking/CalibrationFlow'
-import { useFaceMesh } from '@/core/eyeTracking/FaceMeshProvider'
-import type { CalibrationData } from '@/core/eyeTracking/types'
+import { CalibrationFlowSeeso } from '@/core/eyeTracking/CalibrationFlowSeeso'
+import { useSeeso } from '@/core/eyeTracking/SeesoProvider'
 
 interface Props {
-  onComplete: (data: CalibrationData) => void
+  onComplete: (calibrationData: string) => void
 }
 
 export function CalibrationScreen({ onComplete }: Props) {
-  const { estimator, irisLandmarks, headPose, isReady, cameraError } = useFaceMesh()
+  const { isReady, cameraError } = useSeeso()
 
   if (cameraError) {
     return (
       <div style={styles.loading}>
         <div style={styles.errorIcon}>⚠️</div>
-        <p style={styles.errorTitle}>No se puede acceder a la cámara</p>
+        <p style={styles.errorTitle}>Error de Eyedid SDK</p>
         <p style={styles.errorMsg}>{cameraError}</p>
         <button style={styles.reloadBtn} onClick={() => window.location.reload()}>
           Recargar página
@@ -27,19 +26,12 @@ export function CalibrationScreen({ onComplete }: Props) {
     return (
       <div style={styles.loading}>
         <div style={styles.spinner} />
-        <p style={styles.text}>Iniciando cámara y cargando MediaPipe…</p>
+        <p style={styles.text}>Cargando Eyedid SDK…</p>
       </div>
     )
   }
 
-  return (
-    <CalibrationFlow
-      estimator={estimator}
-      irisLandmarks={irisLandmarks}
-      headPose={headPose}
-      onComplete={onComplete}
-    />
-  )
+  return <CalibrationFlowSeeso onComplete={onComplete} />
 }
 
 const styles: Record<string, React.CSSProperties> = {

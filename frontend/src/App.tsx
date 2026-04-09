@@ -1,82 +1,54 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react'
-import { FaceMeshProvider, useFaceMesh } from './core/eyeTracking/FaceMeshProvider'
+import { SeesoProvider, useSeeso } from './core/eyeTracking/SeesoProvider'
 import { CalibrationScreen } from './components/CalibrationScreen'
 import { CaveLanternGame } from './games/caveLantern/CaveLanternGame'
 import { SessionSummary } from './components/SessionSummary'
-import { WebcamPreview } from './components/WebcamPreview'
 import { DebugOverlay } from './components/DebugOverlay'
 import { useGaze } from './hooks/useGaze'
-import { useTelemetry, useGazeTelemetry } from './hooks/useTelemetry'
+import { useTelemetry } from './hooks/useTelemetry'
 import { useInputManager } from './hooks/useInputManager'
-import { GazeFilter } from './core/eyeTracking/GazeFilter'
-import { CONFIG } from './config'
-import type { CalibrationData } from './core/eyeTracking/types'
+import { SEESO_LICENSE_KEY } from './config'
 import type { SessionData } from './core/telemetry/types'
 
 type AppScreen = 'calibration' | 'game' | 'summary'
 
 function AppInner() {
-  const [screen, setScreen] = useState<AppScreen>('calibration')
+  const [screen, setScreen]         = useState<AppScreen>('calibration')
   const [debugVisible, setDebugVisible] = useState(false)
-  const [sessionData, setSessionData] = useState<SessionData | null>(null)
+  const [sessionData, setSessionData]   = useState<SessionData | null>(null)
   const percentRevealedRef = useRef(0)
 
-  const { estimator, irisLandmarks, fps } = useFaceMesh()
+  const { fps, cameraError, applyCalibrationData } = useSeeso()
   const gaze = useGaze()
-  const filterRef = useRef(new GazeFilter())
-  // useTelemetry now returns stable references — safe to use in useCallback deps
-  const { collector, recordEvent, finalizeSession, resetSession } = useTelemetry()
+  const { recordEvent, finalizeSession, resetSession } = useTelemetry()
   useInputManager(gaze)
-
-  useGazeTelemetry(gaze, irisLandmarks, null, filterRef.current, collector)
 
   // Debug toggle — key D
   useEffect(() => {
-    function handleKey(e: KeyboardEvent) {
+    const handleKey = (e: KeyboardEvent) => {
       if (e.key === 'd' || e.key === 'D') setDebugVisible(v => !v)
     }
     window.addEventListener('keydown', handleKey)
     return () => window.removeEventListener('keydown', handleKey)
   }, [])
 
-  // Restore calibration from localStorage — runs ONCE on mount only.
-  // Uses estimator ref so it doesn't need it as a dep (stable class instance).
+  // Restore saved calibration from localStorage on mount
   useEffect(() => {
-    const raw = localStorage.getItem(CONFIG.calibration.localStorageKey)
-    if (!raw) return
-    try {
-      const cal: CalibrationData = JSON.parse(raw)
+    const saved = localStorage.getItem('seeso_calibration_v1')
+    if (!saved) return
+    applyCalibrationData(saved)
+      .then(() => setScreen('game'))
+      .catch(() => localStorage.removeItem('seeso_calibration_v1'))
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []) // run once
 
-      // Sanity check 1: screen dimensions must match
-      const widthOk = Math.abs(cal.screenWidth - window.innerWidth) < 100
-      const heightOk = Math.abs(cal.screenHeight - window.innerHeight) < 100
-      if (!widthOk || !heightOk) {
-        localStorage.removeItem(CONFIG.calibration.localStorageKey)
-        return
-      }
-
-      // Sanity check 2: must have correct number of coefficients (v2 = 10 each)
-      // and all must be finite numbers
-      const allFinite = [...cal.coeffsX, ...cal.coeffsY].every(Number.isFinite)
-      const rightLength = cal.coeffsX.length === 10 && cal.coeffsY.length === 10
-      if (!allFinite || !rightLength) {
-        localStorage.removeItem(CONFIG.calibration.localStorageKey)
-        return
-      }
-
-      estimator.setCalibration(cal)
-      setScreen('game')
-    } catch {
-      localStorage.removeItem(CONFIG.calibration.localStorageKey)
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []) // intentionally empty — run once on mount only
-
-  const handleCalibrationComplete = useCallback((cal: CalibrationData) => {
+  const handleCalibrationComplete = useCallback((calibrationData: string) => {
+    // calibrationData is already saved to localStorage inside CalibrationFlowSeeso
+    void applyCalibrationData(calibrationData)
     setScreen('game')
-    recordEvent('calibration_done', { calibratedAt: cal.calibratedAt })
+    recordEvent('calibration_done', {})
     recordEvent('game_start', {})
-  }, [recordEvent])
+  }, [applyCalibrationData, recordEvent])
 
   const handlePercentRevealed = useCallback((pct: number) => {
     percentRevealedRef.current = pct
@@ -88,16 +60,14 @@ function AppInner() {
 
   const handleGameEnd = useCallback((pct: number) => {
     recordEvent('game_end', { percentRevealed: pct, trigger: 'win' })
-    const data = finalizeSession(pct)
-    setSessionData(data)
+    setSessionData(finalizeSession(pct))
     setScreen('summary')
   }, [recordEvent, finalizeSession])
 
   const handleEscape = useCallback(() => {
     const pct = percentRevealedRef.current
     recordEvent('game_end', { percentRevealed: pct, trigger: 'escape' })
-    const data = finalizeSession(pct)
-    setSessionData(data)
+    setSessionData(finalizeSession(pct))
     setScreen('summary')
   }, [recordEvent, finalizeSession])
 
@@ -108,6 +78,11 @@ function AppInner() {
     setScreen('game')
     recordEvent('game_start', { replay: true })
   }, [resetSession, recordEvent])
+
+  const handleRecalibrate = useCallback(() => {
+    localStorage.removeItem('seeso_calibration_v1')
+    setScreen('calibration')
+  }, [])
 
   return (
     <>
@@ -126,16 +101,8 @@ function AppInner() {
             onGameEnd={handleGameEnd}
             onEscapePressed={handleEscape}
           />
-          <WebcamPreview />
 
-          <button
-            style={styles.recalibBtn}
-            onClick={() => {
-              localStorage.removeItem(CONFIG.calibration.localStorageKey)
-              estimator.setCalibration(null)
-              setScreen('calibration')
-            }}
-          >
+          <button style={styles.recalibBtn} onClick={handleRecalibrate}>
             Recalibrar
           </button>
         </>
@@ -147,9 +114,9 @@ function AppInner() {
 
       <DebugOverlay
         gaze={gaze}
-        iris={irisLandmarks}
+        iris={null}
         fps={fps}
-        visible={debugVisible}
+        visible={debugVisible && !cameraError}
       />
     </>
   )
@@ -157,16 +124,16 @@ function AppInner() {
 
 export default function App() {
   return (
-    <FaceMeshProvider>
+    <SeesoProvider licenseKey={SEESO_LICENSE_KEY}>
       <AppInner />
-    </FaceMeshProvider>
+    </SeesoProvider>
   )
 }
 
 const styles: Record<string, React.CSSProperties> = {
   recalibBtn: {
     position: 'fixed',
-    bottom: 148,
+    bottom: 16,
     right: 16,
     background: 'rgba(0,0,0,0.7)',
     color: 'rgba(255,255,255,0.6)',
@@ -176,6 +143,5 @@ const styles: Record<string, React.CSSProperties> = {
     fontSize: 12,
     fontFamily: 'system-ui',
     cursor: 'pointer',
-    pointerEvents: 'all',
   },
 }
