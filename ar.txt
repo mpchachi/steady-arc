@@ -1,0 +1,133 @@
+Quiero montar el primer módulo de una plataforma de rehabilitación para pacientes con ictus. El proyecto completo incluirá: eye tracking para juegos terapéuticos, integración con una mano mecánica como dispositivo de input, recogida de telemetría detallada de cada sesión, y un pipeline de ML para analizar la evolución del paciente. 
+
+AHORA MISMO solo vamos a construir el módulo de eye tracking como prueba de concepto, pero la arquitectura tiene que estar preparada para enchufar el resto después.
+
+## Arquitectura del proyecto
+rehab-platform/
+├── frontend/                    # React + Vite
+│   ├── src/
+│   │   ├── core/
+│   │   │   ├── eyeTracking/
+│   │   │   │   ├── FaceMeshProvider.tsx    # Wrapper de MediaPipe Face Mesh
+│   │   │   │   ├── GazeEstimator.ts        # Modelo de regresión iris -> coordenadas pantalla
+│   │   │   │   ├── CalibrationFlow.tsx     # UI de calibración 9 puntos
+│   │   │   │   ├── GazeFilter.ts           # Filtro EMA / Kalman para suavizar
+│   │   │   │   └── types.ts               # GazePoint, CalibrationData, IrisLandmarks
+│   │   │   ├── telemetry/
+│   │   │   │   ├── TelemetryCollector.ts   # Recoge eventos con timestamps
+│   │   │   │   ├── SessionRecorder.ts      # Graba sesión completa (gaze points, eventos del juego, inputs)
+│   │   │   │   └── types.ts               # TelemetryEvent, SessionData, GazeSample
+│   │   │   └── input/
+│   │   │       ├── InputManager.ts         # Abstrae inputs (ojos, mano mecánica, teclado)
+│   │   │       └── types.ts               # InputSource, InputEvent
+│   │   ├── games/
+│   │   │   └── caveLantern/
+│   │   │       ├── CaveLanternGame.tsx     # El juego de la linterna
+│   │   │       ├── FogOfWar.ts             # Lógica del fog of war con canvas
+│   │   │       ├── CaveGenerator.ts        # Generador procedural de caverna
+│   │   │       └── types.ts
+│   │   ├── components/
+│   │   │   ├── WebcamPreview.tsx
+│   │   │   ├── CalibrationScreen.tsx
+│   │   │   ├── SessionSummary.tsx          # Resumen post-sesión con métricas
+│   │   │   └── DebugOverlay.tsx            # Overlay para ver gaze en tiempo real
+│   │   ├── hooks/
+│   │   │   ├── useGaze.ts                  # Hook principal que expone coordenadas de gaze
+│   │   │   ├── useTelemetry.ts             # Hook para registrar eventos
+│   │   │   └── useInputManager.ts
+│   │   ├── App.tsx
+│   │   └── main.tsx
+│   ├── package.json
+│   └── vite.config.ts
+├── backend/                     # FastAPI (para después)
+│   ├── api/
+│   │   ├── sessions.py          # Endpoints para guardar/recuperar sesiones
+│   │   └── analysis.py          # Endpoints para resultados de ML
+│   ├── ml/
+│   │   ├── feature_extraction.py  # Extrae features de la telemetría
+│   │   └── progress_model.py      # Modelo de progreso del paciente
+│   ├── hardware/
+│   │   └── hand_bridge.py        # Bridge serial/BT con la mano mecánica
+│   └── main.py
+└── shared/
+└── schemas/                  # Schemas compartidos (JSON Schema o similar)
+├── session.json
+└── telemetry.json
+## FASE 1: Lo que hay que construir AHORA
+
+Solo el frontend con el módulo de eye tracking funcional y la estructura de telemetría lista para grabar.
+
+### Eye Tracking (CORE, máxima prioridad en precisión)
+
+1. Usar MediaPipe Face Mesh con refineLandmarks: true
+   - Instalar via npm: @mediapipe/face_mesh y @mediapipe/camera_utils
+   - Landmarks del iris: 468-472 (ojo izquierdo), 473-477 (ojo derecho)
+
+2. GazeEstimator: calcular posición relativa del iris
+   - Posición relativa = ratio del centro del iris respecto a las esquinas del ojo
+   - Ojo izquierdo: esquinas en landmarks 33 y 133
+   - Ojo derecho: esquinas en landmarks 362 y 263
+   - Este ratio es INVARIANTE a posición/rotación de la cabeza
+   - Calcular también la apertura del párpado para detectar parpadeos
+
+3. Calibración:
+   - 9 puntos (grid 3x3), cada punto 2 segundos
+   - Recoger múltiples muestras por punto (las del último segundo, descartando el primero por saccade)
+   - Regresión polinomial grado 2 que mapee (iris_ratio_x, iris_ratio_y) -> (screen_x, screen_y)
+   - Guardar datos de calibración en localStorage para no recalibrar cada vez
+   - Botón de recalibración accesible siempre
+
+4. Filtrado:
+   - EMA con alpha configurable (default 0.3)
+   - Detección de parpadeo para pausar el tracking (no mover la linterna cuando el ojo está cerrado)
+   - Detección de saccades (movimientos rápidos) vs fixations (mirada fija)
+
+### Telemetría (grabar TODO para ML posterior)
+
+El TelemetryCollector debe grabar con timestamp de alta resolución (performance.now()):
+
+- Cada GazeSample: { timestamp, rawGazeX, rawGazeY, filteredGazeX, filteredGazeY, leftIrisRatio, rightIrisRatio, headPose, pupilDilation, isBlinking }
+- Eventos del juego: { timestamp, type: "area_revealed" | "treasure_found" | "calibration_done", data: {...} }
+- Métricas derivadas en tiempo real:
+  - Fixation duration (cuánto tiempo mira a un punto)
+  - Saccade velocity y amplitude
+  - Scan path (secuencia de fixaciones)
+  - Porcentaje de área explorada vs tiempo
+  - Zones of interest (qué zonas mira más)
+
+La sesión completa se guarda como un JSON descargable (por ahora, hasta que exista el backend).
+
+### El juego Cave Lantern
+
+- Canvas fullscreen con fog of war
+- Debajo: caverna procedural con textura de roca, camino, cristales, tesoros
+- La linterna (círculo con feathering) sigue el gaze filtrado
+- Las zonas reveladas permanecen visibles
+- Porcentaje de exploración visible en UI
+- Mini webcam preview en esquina (160x120, semi-transparente)
+- Debug overlay toggleable (tecla D) que muestra: gaze point raw vs filtrado, landmarks del iris, FPS del tracking, confianza de la estimación
+
+### SessionSummary post-partida
+
+Cuando el jugador termine (>90% revelado o pulse ESC):
+- Mostrar: tiempo total, porcentaje explorado, número de fixaciones, heatmap de dónde miró más, velocidad media de exploración
+- Botón para descargar la sesión completa como JSON
+- Botón para jugar otra vez
+
+## Consideraciones técnicas
+
+- TypeScript estricto en todo el proyecto
+- El GazeEstimator y el TelemetryCollector deben ser clases independientes del framework, sin dependencia de React, para poder reutilizarlos
+- El InputManager debe ser un patrón de strategy/adapter: ahora solo tiene el input de ojos, pero después se enchufará la mano mecánica como otro InputSource
+- Configuración centralizada (radio de linterna, alpha del filtro, duración de calibración) en un archivo de config
+- El juego debe funcionar a 30fps mínimo con el face mesh corriendo
+
+## Lo que NO hay que construir ahora (pero la arquitectura debe soportar)
+- Backend FastAPI
+- Pipeline de ML
+- Integración con mano mecánica
+- Base de datos de pacientes
+- Sistema de autenticación
+- Múltiples juegos
+
+Construye toda la fase 1 funcional. El eye tracking preciso y robusto es la pieza más crítica.
