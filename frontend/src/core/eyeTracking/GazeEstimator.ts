@@ -6,13 +6,17 @@ const LEFT_EYE_INNER  = 133
 const LEFT_EYE_OUTER  = 33
 const LEFT_EYE_TOP    = 159
 const LEFT_EYE_BOTTOM = 145
-const LEFT_IRIS_CENTER = 468
 
 const RIGHT_EYE_INNER  = 362
 const RIGHT_EYE_OUTER  = 263
 const RIGHT_EYE_TOP    = 386
 const RIGHT_EYE_BOTTOM = 374
-const RIGHT_IRIS_CENTER = 473
+
+// Iris contour points (refineLandmarks must be true)
+// 468 = left center, 469 = top, 470 = right, 471 = bottom, 472 = left edge
+// 473 = right center, 474 = top, 475 = right, 476 = bottom, 477 = left edge
+const LEFT_IRIS_CONTOUR  = [469, 470, 471, 472] // 4 cardinal points (skip center 468)
+const RIGHT_IRIS_CONTOUR = [474, 475, 476, 477]
 
 // Head pose reference points
 const NOSE_TIP  = 1
@@ -35,26 +39,31 @@ export class GazeEstimator {
   }
 
   extractIrisLandmarks(landmarks: Landmark[]): IrisLandmarks {
+    // ── Left eye ────────────────────────────────────────────────────────────
     const lInner  = landmarks[LEFT_EYE_INNER]!
     const lOuter  = landmarks[LEFT_EYE_OUTER]!
     const lTop    = landmarks[LEFT_EYE_TOP]!
     const lBottom = landmarks[LEFT_EYE_BOTTOM]!
-    const lIris   = landmarks[LEFT_IRIS_CENTER]!
+
+    // Fit a circle to the 4 cardinal iris contour points → robust center
+    const lIris = fitIrisCenter(LEFT_IRIS_CONTOUR.map(i => landmarks[i]!))
 
     const lWidth    = Math.abs(lInner.x - lOuter.x)
-    const lHeight   = Math.abs(lTop.y - lBottom.y)
+    const lHeight   = Math.abs(lTop.y   - lBottom.y)
     const lRatioX   = lWidth  > 1e-6 ? (lIris.x - lOuter.x) / lWidth  : 0.5
     const lRatioY   = lHeight > 1e-6 ? (lIris.y - lTop.y)   / lHeight : 0.5
     const lOpenness = lWidth  > 1e-6 ? lHeight / lWidth : 0
 
+    // ── Right eye ───────────────────────────────────────────────────────────
     const rInner  = landmarks[RIGHT_EYE_INNER]!
     const rOuter  = landmarks[RIGHT_EYE_OUTER]!
     const rTop    = landmarks[RIGHT_EYE_TOP]!
     const rBottom = landmarks[RIGHT_EYE_BOTTOM]!
-    const rIris   = landmarks[RIGHT_IRIS_CENTER]!
+
+    const rIris = fitIrisCenter(RIGHT_IRIS_CONTOUR.map(i => landmarks[i]!))
 
     const rWidth    = Math.abs(rInner.x - rOuter.x)
-    const rHeight   = Math.abs(rTop.y - rBottom.y)
+    const rHeight   = Math.abs(rTop.y   - rBottom.y)
     const rRatioX   = rWidth  > 1e-6 ? (rIris.x - rOuter.x) / rWidth  : 0.5
     const rRatioY   = rHeight > 1e-6 ? (rIris.y - rTop.y)   / rHeight : 0.5
     const rOpenness = rWidth  > 1e-6 ? rHeight / rWidth : 0
@@ -63,10 +72,10 @@ export class GazeEstimator {
     const isBlinking  = avgOpenness < CONFIG.eyeTracking.blinkThreshold
 
     return {
-      leftIrisCenter:  { x: lIris.x, y: lIris.y },
-      rightIrisCenter: { x: rIris.x, y: rIris.y },
-      leftIrisRatio:   { x: lRatioX,  y: lRatioY },
-      rightIrisRatio:  { x: rRatioX,  y: rRatioY },
+      leftIrisCenter:   lIris,
+      rightIrisCenter:  rIris,
+      leftIrisRatio:    { x: lRatioX, y: lRatioY },
+      rightIrisRatio:   { x: rRatioX, y: rRatioY },
       leftEyeOpenness:  lOpenness,
       rightEyeOpenness: rOpenness,
       isBlinking,
@@ -141,6 +150,49 @@ export class GazeEstimator {
       screenHeight,
     }
   }
+}
+
+// ── Iris circle fitting ──────────────────────────────────────────────────────
+//
+// Given N points on the iris contour, find the circle center by solving:
+//   x² + y² = 2cx·x + 2cy·y + C   (linear in cx, cy, C)
+//
+// This is the algebraic circle fit (Kåsa method). With 4 cardinal points it's
+// overdetermined → least squares gives a more stable center than any single point.
+
+function fitIrisCenter(pts: Array<{ x: number; y: number }>): { x: number; y: number } {
+  const n = pts.length
+  if (n === 0) return { x: 0, y: 0 }
+  if (n < 3) {
+    // Fall back to centroid
+    return {
+      x: pts.reduce((s, p) => s + p.x, 0) / n,
+      y: pts.reduce((s, p) => s + p.y, 0) / n,
+    }
+  }
+
+  // Design matrix A = [x, y, 1],  b = x²+y²
+  const A = pts.map(p => [p.x, p.y, 1])
+  const b = pts.map(p => p.x * p.x + p.y * p.y)
+
+  const At   = transpose(A)
+  const AtA  = matMul(At, A, 3, n, 3)
+  const Atb  = matVecMul(At, b, 3, n)
+  const coeffs = gaussianElimination(AtA, Atb)
+
+  // coeffs = [2cx, 2cy, C]
+  const cx = (coeffs[0] ?? 0) / 2
+  const cy = (coeffs[1] ?? 0) / 2
+
+  // Sanity check — if fit diverged use centroid instead
+  if (!Number.isFinite(cx) || !Number.isFinite(cy)) {
+    return {
+      x: pts.reduce((s, p) => s + p.x, 0) / n,
+      y: pts.reduce((s, p) => s + p.y, 0) / n,
+    }
+  }
+
+  return { x: cx, y: cy }
 }
 
 // ── Head-pose polynomial helpers ────────────────────────────────────────────
