@@ -5,7 +5,7 @@ import { SerialHandBridge } from '@/core/input/SerialHandBridge'
 import { useFishingGame } from './hooks/useFishingGame'
 import { PhaseInstructions } from './components/PhaseInstructions'
 import { TherapistPanel } from './components/TherapistPanel'
-import { HistoricalDashboard } from './components/HistoricalDashboard'
+import SteadyArcDashboard from './components/SteadyArcDashboard'
 import type { FishingConfig, FishState, HandInput } from './types'
 import { DEFAULT_FISHING_CONFIG } from './types'
 
@@ -282,8 +282,9 @@ export function FishingGame({ onBackToMenu, initialConfig }: Props) {
 
   if (phase === 'summary' && sessionData) {
     return (
-      <HistoricalDashboard
-        session={sessionData}
+      <SteadyArcDashboard
+        patientId={sessionData.patientId}
+        sessionData={sessionData}
         onPlayAgain={reset}
         onBackToMenu={onBackToMenu}
       />
