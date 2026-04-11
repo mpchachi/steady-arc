@@ -81,6 +81,7 @@ export interface FishState {
   angleDeg: number
   status: 'idle' | 'targeted' | 'hooked' | 'caught'
   gazeTimeMs: number
+  dwellTimeMs: number   // gaze + bar simultaneously on mine → 2000ms = explode
   eyeOnsetTime:   number | null
   eyeArrivalTime: number | null
   handOnsetTime:  number | null

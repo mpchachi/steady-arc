@@ -441,10 +441,12 @@ export default function SteadyArcDashboard({ patientId, sessionData, onPlayAgain
 
         <div className={styles.heroImageWrapper}>
           {/* Brain scan placeholder — CSS gradient */}
-          <div className={`${styles.heroImage} ${pulseClass}`} style={{
-            background: 'radial-gradient(ellipse at 50% 40%, rgba(120,80,200,0.35) 0%, rgba(60,30,120,0.25) 40%, transparent 70%)',
-            borderRadius: '50%',
-          }} />
+          <img
+            src="/cerebro.jpeg"
+            alt="brain scan"
+            className={`${styles.heroImage} ${pulseClass}`}
+            style={{ objectFit: 'cover', borderRadius: '50%' }}
+          />
 
           <div className={styles.floatingWidget} style={{ top:'10%', right:'5%' }}>
             <div className={styles.widgetDot} style={{ color:'#8b5cf6' }} />

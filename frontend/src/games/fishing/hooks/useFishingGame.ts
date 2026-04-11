@@ -41,7 +41,7 @@ function makeFish(
     color: ['#38bdf8','#34d399','#f472b6','#fb923c','#a78bfa','#facc15'][
       Math.floor(Math.random() * 6)] ?? '#38bdf8',
     radius, angleDeg: angle * (180 / Math.PI),
-    status: 'idle', gazeTimeMs: 0,
+    status: 'idle', gazeTimeMs: 0, dwellTimeMs: 0,
     eyeOnsetTime: null, eyeArrivalTime: null,
     handOnsetTime: null, handEndTime: null, eyeEndTime: null,
     spawnSide: zone,
@@ -252,6 +252,7 @@ export function useFishingGame(config: FishingConfig) {
         const gazeOnFish = dist < fish.radius * 3.5
 
         let gazeTimeMs = fish.gazeTimeMs
+        let dwellTimeMs = fish.dwellTimeMs
         let status: FishState['status'] = fish.status
         let eyeOnsetTime   = fish.eyeOnsetTime
         let eyeArrivalTime = fish.eyeArrivalTime
@@ -259,6 +260,9 @@ export function useFishingGame(config: FishingConfig) {
         let handEndTime    = fish.handEndTime
         let eyeEndTime     = fish.eyeEndTime
         let anyGazeOnFish  = false
+
+        // Bar covers full Y — only check horizontal alignment, very generous for stroke patients
+        const hookOk = hookX < 0 || Math.abs(hookX - x) < fish.radius * 6
 
         if (status === 'idle' || status === 'targeted') {
           if (gazeOnFish) {
@@ -279,15 +283,29 @@ export function useFishingGame(config: FishingConfig) {
             }
             if (status === 'idle') gazeTimeMs = Math.max(0, gazeTimeMs - dt * 800)
           }
+
+          // Dwell mechanic: gaze + bar simultaneously on mine for 2s → explode
+          if (gazeOnFish && hookOk) {
+            dwellTimeMs += dt * 1000
+          } else {
+            dwellTimeMs = 0
+          }
         }
 
         if (anyGazeOnFish) gazeOnFishMsRef.current += dt * 1000
 
-        // Bar covers full Y — only check horizontal alignment, very generous for stroke patients
-        const hookOk = hookX < 0 || Math.abs(hookX - x) < fish.radius * 6
-        // Detonate on rising edge of grip (risingEdge captured before setFishes to avoid React batching issues)
-        if (status === 'targeted' && risingEdge && hookOk) {
+        const DWELL_THRESHOLD_MS = 2000
+
+        const shouldCatch =
+          // Mechanic 1: 2s gaze + bar dwell
+          (dwellTimeMs >= DWELL_THRESHOLD_MS) ||
+          // Mechanic 2: flex rising edge (grip) when targeted
+          (status === 'targeted' && risingEdge && hookOk)
+
+        if (shouldCatch) {
           status = 'caught'
+          dwellTimeMs = 0
+          if (eyeArrivalTime === null) eyeArrivalTime = performance.now()
           handOnsetTime = performance.now()
           handEndTime   = performance.now()
           const side: FishCatch['side'] = x < canvasW * 0.4 ? 'left' : x > canvasW * 0.6 ? 'right' : 'center'
@@ -307,7 +325,7 @@ export function useFishingGame(config: FishingConfig) {
         if (gazeOnFish) prevGazeTarget.current = fish.id
         else if (prevGazeTarget.current === fish.id) prevGazeTarget.current = null
 
-        return { ...fish, x, y, vx, vy, angleDeg, gazeTimeMs, status, eyeOnsetTime, eyeArrivalTime, handOnsetTime, handEndTime, eyeEndTime }
+        return { ...fish, x, y, vx, vy, angleDeg, gazeTimeMs, dwellTimeMs, status, eyeOnsetTime, eyeArrivalTime, handOnsetTime, handEndTime, eyeEndTime }
       })
 
       if (next.every(f => f.status === 'caught')) setTimeout(() => advancePhase('fishing'), 1000)

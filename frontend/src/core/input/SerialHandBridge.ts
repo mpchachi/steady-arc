@@ -9,12 +9,12 @@ import type { HandInput } from '@/games/fishing/types'
  * Fallback automático a KeyboardHandSimulator si no hay puerto.
  */
 
-// EMG thresholds (raw ADC 0-1023)
+// EMG thresholds — v3.0: envelope desde baseline (0 = reposo, sube con contracción)
 export const EMG_THRESHOLDS = {
-  baseline:    150,  // 0-150   ruido basal
-  voluntary:   400,  // 150-400 contracción voluntaria fuerte
-  fatigue:     800,  // 400-800 fatiga / espasmo máximo
-  max:        1023,  // 800-1023 contracción máxima
+  baseline:   10,   // 0-10    ruido basal / reposo
+  voluntary:  80,   // 10-80   contracción voluntaria
+  strong:    200,   // 80-200  contracción fuerte
+  max:       500,   // >200    contracción máxima / espasmo
 }
 
 // Flex calibration state
@@ -116,11 +116,10 @@ export class SerialHandBridge {
   private parseLine(line: string): void {
     try {
       const d = JSON.parse(line) as {
-        flex: number; emg: number
+        flex: number; emg: number; emg_raw?: number
         ax: number; ay: number; az: number
         gx: number; gy: number; gz: number
-        // status packet from Arduino setup
-        status?: string; emg_connected?: boolean
+        status?: string; emg_connected?: boolean; emg_baseline?: number
       }
 
       // Status packet from Arduino init
@@ -136,9 +135,10 @@ export class SerialHandBridge {
       this.flexSmoothed = this.flexSmoothed * 0.7 + raw * 0.3
       const flexNorm = this.flexSmoothed
 
-      // EMG: -1 means not connected
-      const emgRaw  = d.emg >= 0 ? d.emg : undefined
-      const emgNorm = emgRaw !== undefined ? emgRaw / 1023 : undefined
+      // emgRaw = ADC real 0-1023 (d.emg_raw) → para MetricsCalculator
+      // emgNorm = envelope normalizado (d.emg) → para display
+      const emgRaw  = (d.emg_raw !== undefined && d.emg_raw >= 0) ? d.emg_raw : undefined
+      const emgNorm = (d.emg !== undefined && d.emg >= 0) ? Math.min(1, d.emg / 500) : undefined
       if (emgRaw !== undefined) this.emgConnected = true
 
       // Orientation from accel (pitch/roll in degrees)

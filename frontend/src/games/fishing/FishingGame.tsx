@@ -371,7 +371,7 @@ function drawFish(ctx: CanvasRenderingContext2D, fish: FishState, now: number, b
   ctx.save()
   ctx.translate(x, y)
 
-  // Gaze progress arc
+  // Gaze fixation progress arc (grey, inner)
   if (status === 'idle') {
     const progress = gazeTimeMs / 1500
     if (progress > 0.05) {
@@ -383,6 +383,7 @@ function drawFish(ctx: CanvasRenderingContext2D, fish: FishState, now: number, b
       ctx.stroke()
     }
   }
+
 
   // Targeted / hooked outer ring
   if (status === 'targeted' || status === 'hooked') {
