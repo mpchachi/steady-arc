@@ -1,0 +1,387 @@
+# Prompt para Claude Code: Juego de Rehabilitacion "La Pesca"
+
+Copia todo desde la linea de abajo hasta el final del documento y pegalo en Claude Code.
+
+---
+
+Tengo un proyecto existente en React + Vite + TypeScript donde ya tengo implementado un juego de "explorar una cueva" con eye tracking usando MediaPipe Face Mesh. El jugador mira la pantalla y donde mira se revela una foto oculta bajo oscuridad (fog of war tipo linterna). ESO YA FUNCIONA, no lo toques.
+
+Ahora necesito construir un SEGUNDO juego dentro del mismo proyecto: "La Pesca", un juego de rehabilitacion neurologica para pacientes con ictus. Este juego combina eye tracking (que ya tenemos) con input de una mano mecanica con sensores (flex, IMU MPU6050, y posiblemente EMG) que AUN NO ESTA CONECTADA. Por ahora el input de la mano se simula con teclado, pero la arquitectura tiene que estar 100% preparada para enchufar el hardware real via Web Serial API sin reescribir nada.
+
+## CONTEXTO CLINICO CRITICO
+
+Este juego forma parte de una plataforma de rehabilitacion supervisada por un neurologo. El doctor ha definido 18 metricas clinicas especificas que el juego DEBE recoger. Estas metricas se usaran despues en un pipeline de ML para analizar la evolucion del paciente. El juego NO es solo un juego, es un instrumento de medicion clinica disfrazado de juego.
+
+Los pacientes objetivo tienen:
+- Deficit motor en mano (fuerza, motricidad fina, rango de movimiento)
+- Deficit cognitivo leve (atencion, memoria)
+- Capacidad visual moderada (nada demasiado complejo visualmente)
+
+El juego debe ser: calmado, sin presion de tiempo, sin penalizacion por fallos, sesiones de 3 a 5 minutos, visualmente limpio y sencillo.
+
+## METRICAS CLINICAS QUE EL JUEGO DEBE RECOGER
+
+Estas metricas vienen del doctor y son OBLIGATORIAS. El juego debe generar los datos brutos necesarios para calcularlas todas. Agrupo por sensor:
+
+### Metricas del sensor Flex (6 metricas)
+Todas se calculan sobre ciclos de movimiento repetitivo (abrir/cerrar mano, flexionar dedos):
+
+1. **amp_avg** (Core): Media de la excursion activa por ciclo. Formula: mean(max(flex_j) - min(flex_j)). Proxy de rango de movimiento reproducible.
+2. **CD_avg** (Core): Duracion media de cada ciclo de movimiento. Formula: mean(t_peak_j - t_peak_(j-1)). Ciclos mas largos = movimiento mas lento.
+3. **CMS_avg** (Secondary): Media de la velocidad maxima absoluta de flexion por ciclo. Formula: mean(max(|d flex/dt|)_j). Separa baja amplitud de baja velocidad.
+4. **beta_amp** (Core): Pendiente de la amplitud a lo largo de ciclos sucesivos. Formula: amp_j = alpha + beta_amp * cycle_j + error. Pendiente negativa = decremento progresivo (clave en Parkinson).
+5. **AmpCV** (Core): Coeficiente de variacion de la amplitud de ciclo. Formula: SD(amp_j) / mean(amp_j). Captura irregularidad y hesitaciones.
+6. **N_int** (Core): Numero de interrupciones o ciclos anormalmente largos. Formula: count(CD_j > 2 * median(CD)). Captura micro-pausas.
+
+### Metricas del IMU / MPU6050 (9 metricas)
+
+7. **MT** (Core): Tiempo de movimiento desde inicio hasta fin. Formula: t_offset - t_onset. Medida global de lentitud.
+8. **omega_peak** (Core): Velocidad angular maxima durante la ventana de movimiento. Formula: max(|omega(t)|). Vigor motor pico.
+9. **omega_mean** (Secondary): Velocidad angular media durante la tarea. Formula: mean(|omega(t)|). Mas estable que el pico.
+10. **SPARC_gyro** (Core): Spectral Arc Length aplicado a velocidad angular del giroscopio. Smoothness: valor mas bajo = movimiento mas fragmentado. Metrica robusta para IMU unico.
+11. **LDLJ_A** (Secondary): Log Dimensionless Jerk estimado desde aceleracion. Smoothness alternativa basada en jerk.
+12. **NMU** (Core): Numero de unidades de movimiento (picos cinematicos) dentro de un movimiento nominalmente unico. Mas picos = mas correcciones = peor suavidad.
+13. **f_tremor** (Secondary): Frecuencia pico del espectro de tremor en banda de interes. Formula: argmax PSD(f) en banda predefinida.
+14. **RMS_tremor** (Core): Amplitud RMS de la senal filtrada en banda de tremor. Formula: sqrt(mean(x_filtered^2)).
+15. **T_tremor** (Core): Tiempo total durante el cual se detecta tremor. Suma de duraciones de ventanas tremor-positivas.
+
+### Metricas de Eye-Hand coupling (Eye-tracker + IMU/Flex) (3 metricas)
+
+16. **MOA** (Core): Movement Onset Asynchrony. Diferencia temporal entre inicio de movimiento ocular hacia target e inicio de movimiento de mano. Formula: t_eye_onset - t_hand_onset. Muestra si la mirada anticipa a la mano (feedforward).
+17. **FT** (Core): Foveation Time. Intervalo entre llegada del ojo al target e inicio de movimiento de mano hacia ese target. Formula: t_eye_arrival_target - t_hand_onset. Una de las metricas visuomotoras mas claras.
+18. **MTA** (Secondary): Movement Termination Asynchrony. Diferencia entre fin de movimiento ocular y fin de movimiento de mano. Formula: t_eye_end - t_hand_end.
+
+### Metrica adicional solo de eye-tracker
+
+19. **TLS** (Exploratory): Target vs hand Looking Score. Balance entre mirar al target y monitorizar la mano. Requiere AOIs estables.
+
+## PROTOCOLO CLINICO DEL DOCTOR (sesion de 4 a 6 minutos)
+
+El doctor ha definido 6 tareas clinicas. El juego de La Pesca debe incorporar mecanicas que generen datos equivalentes a estas tareas:
+
+| Orden | Tarea | Duracion | Sensores | Metricas principales |
+|-------|-------|----------|----------|---------------------|
+| 1 | Rest tremor | 30s | IMU | f_tremor, RMS_tremor, T_tremor |
+| 2 | Postural hold | 20s | IMU | f_tremor, RMS_tremor, T_tremor |
+| 3 | Open-close hand | 10-15s | Flex + IMU | amp_avg, CD_avg, beta_amp, AmpCV, N_int |
+| 4 | Finger tapping | 10-15s | Flex + IMU | amp_avg, CD_avg, CMS_avg, beta_amp, N_int |
+| 5 | Pronation-supination | 10s | IMU | MT, omega_peak, SPARC_gyro |
+| 6 | Reach-to-target | 60-90s (8-10 reps) | Eye-tracker + IMU | MT, omega_peak, SPARC_gyro, NMU, MOA, FT, MTA |
+
+## DISENO DEL JUEGO "LA PESCA"
+
+### Concepto
+Lago tranquilo visto desde arriba. Agua calmada, colores suaves, estetica limpia. El paciente pesca en el lago usando ojos y mano.
+
+### Fases del gameplay (secuenciales, una mecanica a la vez)
+
+**Fase de calma inicial (mapea a T1 Rest tremor + T2 Postural hold, ~50s)**
+- El juego empieza con el lago en calma. Instruccion en pantalla: "Relajate y observa el lago"
+- Durante 30s el paciente tiene la mano quieta apoyada (rest tremor recording)
+- Luego 20s manteniendo la mano en posicion de "sujetar la cana" (postural hold recording)
+- Visualmente: ondas suaves en el agua, ambiente relajante. No hay interaccion activa.
+- CRITICO: durante esta fase se graban los datos brutos del IMU para calcular f_tremor, RMS_tremor, T_tremor, V_tremor
+
+**Fase de preparacion del sedal (mapea a T3 Open-close hand + T4 Finger tapping, ~25s)**
+- Instruccion: "Prepara el sedal abriendo y cerrando la mano"
+- El paciente hace movimientos repetitivos de abrir/cerrar (10-15s)
+- Animacion: la cana de pescar se "carga" visualmente con cada ciclo
+- Luego: "Ajusta el anzuelo con golpecitos" (finger tapping 10-15s)
+- CRITICO: se graban datos del flex sensor para amp_avg, CD_avg, CMS_avg, beta_amp, AmpCV, N_int
+- Con teclado: la barra espaciadora simula abrir/cerrar en ciclos (presionar = cerrar, soltar = abrir)
+
+**Fase de lanzamiento (mapea a T5 Pronation-supination, ~10s)**
+- Instruccion: "Lanza el sedal girando la muneca"
+- El paciente rota la mano (pronacion-supinacion) para "lanzar"
+- Animacion: el sedal se lanza al agua, la distancia depende de la calidad del gesto
+- CRITICO: se graba IMU para MT, omega_peak, SPARC_gyro, omega_mean
+- Con teclado: flechas izquierda/derecha alternativamente simulan rotacion
+
+**Fase de pesca (mapea a T6 Reach-to-target, ~60-90s, 8-10 repeticiones)**
+- Peces aparecen en el lago moviéndose lentamente
+- El paciente MIRA un pez (eye tracker lo detecta con fixacion de 1-2s)
+- Cuando el pez esta "detectado", el paciente APRIETA para engancharlo (flex/teclado)
+- El pez se mueve lentamente hacia el cubo, el paciente mantiene la presion
+- Repetir 8-10 veces con peces en distintas posiciones del lago
+- CRITICO: esta fase genera las metricas de eye-hand coupling: MOA (diferencia entre cuando el ojo llega al pez y cuando la mano actua), FT (tiempo entre fijacion visual en el pez y inicio de agarre), MTA (diferencia entre cuando el ojo se mueve al siguiente pez y cuando suelta el actual)
+- Tambien genera MT, omega_peak, SPARC_gyro, NMU por cada "captura"
+- Con teclado: espacio = agarrar/soltar
+
+**Final de sesion**
+- Mostrar resumen visual: peces capturados, tiempo total, "puntuacion" positiva (siempre motivacional, nunca punitiva)
+- Boton para descargar sesion completa como JSON
+
+### Reglas de experiencia de paciente
+- NUNCA hay "game over"
+- NUNCA se pierde un pez. Si no agarra a tiempo, el pez simplemente espera
+- NUNCA hay temporizadores visibles que presionen
+- Los peces se mueven MUY lento
+- Cada accion exitosa tiene feedback visual y sonoro positivo
+- Si el paciente no hace nada durante 10s, aparece un reminder suave (nunca un regano)
+- La dificultad la controla el terapeuta desde un panel, no sube automaticamente
+
+## ARQUITECTURA TECNICA
+
+### Estructura de archivos (DENTRO del proyecto React+Vite existente)
+
+```
+src/
+├── core/                          # Ya existe parcialmente
+│   ├── eyeTracking/               # YA EXISTE, no tocar
+│   │   ├── FaceMeshProvider.tsx
+│   │   ├── GazeEstimator.ts
+│   │   ├── CalibrationFlow.tsx
+│   │   ├── GazeFilter.ts
+│   │   └── types.ts
+│   ├── input/
+│   │   ├── InputManager.ts        # Abstraccion de inputs (ojos, mano, teclado)
+│   │   ├── SerialHandBridge.ts    # Web Serial API para Arduino (preparado, no conectado aun)
+│   │   ├── KeyboardHandSimulator.ts  # Simula la mano con teclado
+│   │   └── types.ts               # InputSource, HandSensorData, InputEvent
+│   ├── telemetry/
+│   │   ├── TelemetryCollector.ts  # Recoge TODOS los datos brutos con timestamps (performance.now())
+│   │   ├── SessionRecorder.ts     # Graba sesion completa
+│   │   ├── MetricsCalculator.ts   # Calcula las 18+ metricas clinicas a partir de datos brutos
+│   │   └── types.ts               # TelemetryEvent, SessionData, GazeSample, HandSample, ClinicalMetrics
+│   └── config/
+│       └── gameConfig.ts          # Parametros centralizados (velocidades, duraciones, umbrales)
+├── games/
+│   ├── caveLantern/               # YA EXISTE, no tocar
+│   │   └── ...
+│   └── fishing/
+│       ├── FishingGame.tsx         # Componente principal del juego
+│       ├── phases/
+│       │   ├── RestPhase.tsx       # Fase de calma (T1 + T2)
+│       │   ├── PrepPhase.tsx       # Fase de preparacion (T3 + T4)
+│       │   ├── CastPhase.tsx       # Fase de lanzamiento (T5)
+│       │   └── FishingPhase.tsx    # Fase de pesca (T6)
+│       ├── components/
+│       │   ├── Lake.tsx            # Renderizado del lago (canvas)
+│       │   ├── Fish.tsx            # Logica y renderizado de peces
+│       │   ├── FishingRod.tsx      # Cana de pescar visual
+│       │   ├── PhaseInstructions.tsx  # Instrucciones en pantalla (grandes, claras)
+│       │   ├── SessionSummary.tsx  # Resumen post-sesion
+│       │   └── TherapistPanel.tsx  # Panel lateral para el terapeuta (ajustar dificultad)
+│       ├── hooks/
+│       │   ├── useFishingGame.ts   # Estado y logica del juego
+│       │   └── usePhaseRecording.ts  # Graba telemetria por fase
+│       └── types.ts
+└── components/
+    ├── GameSelector.tsx            # Pantalla para elegir entre cueva y pesca
+    └── DebugOverlay.tsx            # Overlay toggleable (tecla D) con datos en tiempo real
+```
+
+### InputManager (CRITICO: abstraccion hardware)
+
+```typescript
+// El InputManager expone metodos genericos que el juego consume
+// Internamente usa KeyboardHandSimulator ahora, SerialHandBridge despues
+// El juego NUNCA sabe si el input viene de teclado o hardware
+
+interface HandInput {
+  // Flex sensor
+  gripStrength: number;       // 0-1 normalizado. Teclado: espacio=1, nada=0
+  flexRaw: number;            // Valor crudo del flex sensor (para metricas clinicas)
+  
+  // IMU / MPU6050
+  accel: { x: number; y: number; z: number };   // Acelerometro
+  gyro: { x: number; y: number; z: number };    // Giroscopio
+  orientation: { pitch: number; roll: number; yaw: number }; // Calculado
+  
+  // EMG (opcional, puede no existir)
+  emg?: number;               // 0-1 normalizado si existe
+  emgRaw?: number;
+  
+  // Metadata
+  timestamp: number;          // performance.now()
+  source: 'keyboard' | 'serial';
+  isConnected: boolean;
+}
+```
+
+### KeyboardHandSimulator
+
+Mapeo de teclado que simula los sensores:
+- **Espacio**: presionar/soltar = ciclo de flex (abrir/cerrar). Genera una senal sinusoidal simulada en flexRaw cuando se presiona y suelta repetidamente.
+- **Flechas izquierda/derecha alternadas**: simulan rotacion (pronacion-supinacion). Genera senal en gyro.z.
+- **Flechas arriba/abajo**: simulan inclinacion (pitch). Genera senal en gyro.x.
+- **R**: simula rotacion de muneca (yaw). Genera senal en gyro.y.
+- El simulador debe generar senales realistas (no solo 0/1) para que las metricas se puedan calcular. Usar funciones sinusoidales con ruido para simular datos de sensor.
+
+### SerialHandBridge (preparado pero no conectado)
+
+```typescript
+// Listo para cuando el Arduino este disponible
+// Arduino enviara JSON por serial: {"flex":423,"emg":128,"ax":0.12,"ay":-0.98,"az":0.05,"gx":1.2,"gy":-0.3,"gz":0.8}
+// Baudrate: 115200 (100Hz para metricas clinicas)
+// Requiere Chrome/Edge + interaccion del usuario para abrir puerto
+// Calibracion automatica en primera conexion: pedir al paciente "aprieta al maximo" y "relaja"
+```
+
+### TelemetryCollector (CRITICO: graba TODO)
+
+Debe grabar a la frecuencia mas alta posible (idealmente cada frame):
+
+```typescript
+interface HandSample {
+  timestamp: number;            // performance.now()
+  flexRaw: number;
+  gripStrength: number;
+  accelX: number; accelY: number; accelZ: number;
+  gyroX: number; gyroY: number; gyroZ: number;
+  pitch: number; roll: number; yaw: number;
+  emgRaw?: number;
+  source: 'keyboard' | 'serial';
+}
+
+interface GazeSample {
+  timestamp: number;
+  rawGazeX: number; rawGazeY: number;
+  filteredGazeX: number; filteredGazeY: number;
+  leftIrisRatioX: number; leftIrisRatioY: number;
+  rightIrisRatioX: number; rightIrisRatioY: number;
+  isBlinking: boolean;
+  fixationDuration: number;     // ms que lleva fijando en el punto actual
+  isFixation: boolean;          // true si esta fijando, false si saccade
+}
+
+interface GameEvent {
+  timestamp: number;
+  phase: 'rest' | 'postural' | 'openclose' | 'tapping' | 'pronation' | 'fishing';
+  type: 'phase_start' | 'phase_end' | 'fish_detected' | 'fish_grabbed' | 'fish_caught' | 'fish_released' | 'cast_start' | 'cast_end' | 'cycle_peak' | 'cycle_trough';
+  data: Record<string, any>;    // Datos especificos del evento
+}
+
+interface SessionData {
+  sessionId: string;
+  patientId: string;            // Introducido por el terapeuta
+  startTime: number;
+  endTime: number;
+  game: 'fishing';
+  handSamples: HandSample[];
+  gazeSamples: GazeSample[];
+  gameEvents: GameEvent[];
+  phases: PhaseData[];          // Datos agrupados por fase
+  calculatedMetrics: ClinicalMetrics;  // Las 18 metricas del doctor
+  config: GameConfig;           // Configuracion usada en esta sesion
+}
+```
+
+### MetricsCalculator
+
+Clase independiente (sin dependencia de React) que toma los datos brutos de una sesion y calcula las 18 metricas clinicas. Debe implementar:
+
+**Para metricas Flex (necesitan deteccion de ciclos):**
+- Deteccion de picos y valles en la senal de flex para identificar ciclos
+- Calculo de amplitud por ciclo, duracion por ciclo, velocidad maxima por ciclo
+- Regresion lineal para beta_amp
+- CV y conteo de interrupciones
+
+**Para metricas IMU:**
+- Deteccion de onset/offset de movimiento (umbral en velocidad angular)
+- Calculo de SPARC (Spectral Arc Length) sobre senal de giroscopio
+- Calculo de LDLJ desde aceleracion
+- Conteo de NMU (picos en perfil de velocidad)
+- PSD para frecuencia de tremor (Welch)
+- RMS en banda de tremor filtrada
+
+**Para metricas Eye-Hand:**
+- MOA: detectar cuando el ojo empieza a moverse hacia target vs cuando la mano empieza a moverse
+- FT: detectar cuando el ojo llega al target vs cuando la mano inicia movimiento
+- MTA: detectar fin de movimiento ocular vs fin de movimiento de mano
+
+**IMPORTANTE**: Aunque ahora el flex y el IMU son simulados por teclado, el MetricsCalculator debe funcionar con datos reales sin cambios. Los datos simulados deben tener la misma estructura que los reales.
+
+### TherapistPanel
+
+Panel lateral (colapsable) solo visible si el terapeuta lo activa (atajo de teclado Ctrl+T):
+- Seleccion de paciente (input de texto con ID)
+- Ajustes de dificultad: velocidad de peces (1-5), numero de peces por sesion (5-15), tamano de peces, duracion de cada fase
+- Boton para saltar fases (si el paciente no puede hacer alguna)
+- Visualizacion en tiempo real de los datos del sensor (graficas simples)
+- Boton para descargar sesion como JSON
+- Historial de sesiones anteriores (localStorage)
+
+### Exportacion de datos
+
+La sesion completa se exporta como JSON con esta estructura:
+```json
+{
+  "version": "1.0",
+  "sessionId": "uuid",
+  "patientId": "string",
+  "game": "fishing",
+  "timestamp": "ISO8601",
+  "duration_ms": 240000,
+  "config": { ... },
+  "phases": [
+    {
+      "name": "rest_tremor",
+      "task_id": "T1",
+      "start_ms": 0,
+      "end_ms": 30000,
+      "hand_samples": [ ... ],
+      "gaze_samples": [ ... ],
+      "events": [ ... ],
+      "metrics": {
+        "f_tremor": 4.2,
+        "RMS_tremor": 0.15,
+        "T_tremor": 12.3
+      }
+    },
+    ...
+  ],
+  "global_metrics": {
+    "amp_avg": ...,
+    "CD_avg": ...,
+    ...todas las 18 metricas...
+  },
+  "raw_data": {
+    "hand_samples_count": 12000,
+    "gaze_samples_count": 7200,
+    "hand_sampling_rate_hz": 50,
+    "gaze_sampling_rate_hz": 30
+  }
+}
+```
+
+## ESTETICA VISUAL
+
+- Paleta: azules suaves, verdes agua, blancos. Nada saturado ni agresivo.
+- El lago es una vista cenital simple: fondo azul degradado con ondulaciones suaves CSS/canvas.
+- Los peces son formas simples (no sprites complejos) con colores distintos para diferenciarlos.
+- Tipografia grande y legible (min 24px para instrucciones).
+- Animaciones suaves y lentas. Nada parpadea, nada se mueve rapido.
+- Sin musica de fondo obligatoria (el paciente puede estar en un hospital).
+- Sonidos: splash suave al pescar, "ding" suave al capturar. Volumen bajo. Opcionales.
+
+## QUE CONSTRUIR AHORA (Fase 1)
+
+1. Toda la estructura de archivos del juego fishing/
+2. InputManager con KeyboardHandSimulator funcionando
+3. SerialHandBridge como clase vacia con la interfaz lista (metodos stub que retornan datos mock)
+4. TelemetryCollector grabando datos de gaze (real) y hand (simulado por teclado)
+5. Las 4 fases del juego funcionando con eye tracker real + teclado para mano
+6. MetricsCalculator implementando al menos las metricas Core (las 10 marcadas como Core)
+7. SessionSummary con descarga de JSON
+8. TherapistPanel basico
+9. GameSelector para navegar entre el juego de la cueva (existente) y el de la pesca (nuevo)
+10. DebugOverlay mostrando datos en tiempo real
+
+## QUE NO CONSTRUIR AHORA (pero la arquitectura DEBE soportar)
+
+- Conexion real con Arduino (SerialHandBridge preparado pero no conectado)
+- EMG (el campo existe en las interfaces pero puede ser undefined)
+- Backend / base de datos
+- Pipeline de ML
+- Multiples idiomas
+- Sistema de autenticacion
+
+## NOTAS FINALES
+
+- El eye tracking ya esta implementado en el proyecto. Reutiliza el hook useGaze o el GazeEstimator existente.
+- TypeScript estricto en todo.
+- Las clases de core (MetricsCalculator, TelemetryCollector, InputManager) NO deben depender de React. Son clases puras que se pueden reutilizar en cualquier contexto.
+- El juego debe funcionar a 30fps minimo con el face mesh corriendo.
+- Testea que el JSON de sesion exportado contenga datos coherentes y todas las metricas.
+- Pon atencion especial a las metricas de eye-hand coupling (MOA, FT, MTA) porque son las que dan mas valor al juego frente a un test clinico tradicional: el juego captura la coordinacion ojo-mano de forma natural sin que el paciente sienta que le estan evaluando.

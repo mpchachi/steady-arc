@@ -2,7 +2,10 @@
 
 // ── Eyedid (SeeSo) license key ───────────────────────────────────────────────
 // Get yours free at https://manage.seeso.io
-export const SEESO_LICENSE_KEY = import.meta.env.VITE_SEESO_LICENSE_KEY ?? 'YOUR_LICENSE_KEY'
+export const SEESO_LICENSE_KEY = (import.meta as unknown as { env: Record<string, string> }).env['VITE_SEESO_LICENSE_KEY'] ?? 'YOUR_LICENSE_KEY'
+
+// ── AWS API Gateway ───────────────────────────────────────────────────────────
+export const API_BASE_URL = 'https://oopifnxmbk.execute-api.eu-central-1.amazonaws.com'
 
 export const CONFIG = {
   eyeTracking: {

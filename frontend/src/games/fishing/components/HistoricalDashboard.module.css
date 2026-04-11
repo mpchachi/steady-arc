@@ -1,0 +1,460 @@
+/* ── HistoricalDashboard styles — SteadyArc port ──────────────────────────── */
+
+.container {
+  position: fixed;
+  inset: 0;
+  background: #050c19;
+  color: #e0f0ff;
+  font-family: system-ui, -apple-system, sans-serif;
+  overflow-y: auto;
+  overflow-x: hidden;
+}
+
+/* ── Header ─────────────────────────────────────────────────────────────────── */
+
+.header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 18px 28px;
+  border-bottom: 1px solid rgba(100,180,255,0.12);
+  background: rgba(10,22,44,0.8);
+  backdrop-filter: blur(8px);
+  position: sticky;
+  top: 0;
+  z-index: 10;
+}
+
+.headerLeft {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.logo {
+  font-size: 22px;
+  font-weight: 900;
+  color: #38bdf8;
+  letter-spacing: -0.5px;
+}
+
+.patientBadge {
+  background: rgba(56,189,248,0.12);
+  border: 1px solid rgba(56,189,248,0.25);
+  border-radius: 20px;
+  padding: 4px 12px;
+  font-size: 13px;
+  color: #7dd3fc;
+}
+
+.headerActions {
+  display: flex;
+  gap: 10px;
+}
+
+.btnPrimary {
+  background: #3b82f6;
+  color: #fff;
+  border: none;
+  border-radius: 10px;
+  padding: 9px 20px;
+  font-size: 14px;
+  font-weight: 700;
+  cursor: pointer;
+  transition: background 0.15s;
+}
+.btnPrimary:hover { background: #2563eb; }
+
+.btnSecondary {
+  background: rgba(255,255,255,0.07);
+  color: #e0f0ff;
+  border: 1px solid rgba(255,255,255,0.12);
+  border-radius: 10px;
+  padding: 9px 18px;
+  font-size: 14px;
+  cursor: pointer;
+  transition: background 0.15s;
+}
+.btnSecondary:hover { background: rgba(255,255,255,0.12); }
+
+/* ── Loading / Error states ─────────────────────────────────────────────────── */
+
+.loading {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  height: 60vh;
+  gap: 16px;
+  color: #7dd3fc;
+}
+
+.spinner {
+  width: 48px;
+  height: 48px;
+  border: 3px solid rgba(56,189,248,0.2);
+  border-top-color: #38bdf8;
+  border-radius: 50%;
+  animation: spin 0.8s linear infinite;
+}
+@keyframes spin { to { transform: rotate(360deg); } }
+
+.errorBox {
+  margin: 40px auto;
+  max-width: 480px;
+  background: rgba(239,68,68,0.1);
+  border: 1px solid rgba(239,68,68,0.3);
+  border-radius: 14px;
+  padding: 24px;
+  text-align: center;
+  color: #fca5a5;
+}
+
+/* ── Hero row (alert card + heatmap) ────────────────────────────────────────── */
+
+.hero {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 20px;
+  padding: 24px 28px 0;
+}
+
+@media (max-width: 900px) {
+  .hero { grid-template-columns: 1fr; }
+}
+
+/* ── Alert card ─────────────────────────────────────────────────────────────── */
+
+.alertCard {
+  border-radius: 18px;
+  padding: 28px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  border: 1px solid transparent;
+  min-height: 240px;
+}
+
+.alertImproving { background: rgba(16,185,129,0.12); border-color: rgba(16,185,129,0.3); }
+.alertStable    { background: rgba(59,130,246,0.12); border-color: rgba(59,130,246,0.3); }
+.alertWatch     { background: rgba(251,191,36,0.12); border-color: rgba(251,191,36,0.3); }
+.alertAlert     { background: rgba(239,68,68,0.12);  border-color: rgba(239,68,68,0.3); }
+
+.alertBadge {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  border-radius: 20px;
+  padding: 5px 14px;
+  font-size: 12px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.8px;
+  width: fit-content;
+}
+
+.alertBadgeImproving { background: rgba(16,185,129,0.2);  color: #34d399; }
+.alertBadgeStable    { background: rgba(59,130,246,0.2);  color: #60a5fa; }
+.alertBadgeWatch     { background: rgba(251,191,36,0.2);  color: #fbbf24; }
+.alertBadgeAlert     { background: rgba(239,68,68,0.2);   color: #f87171; }
+
+.alertScore {
+  font-size: 56px;
+  font-weight: 900;
+  line-height: 1;
+  margin: 4px 0;
+}
+
+.alertImproving .alertScore { color: #34d399; }
+.alertStable    .alertScore { color: #60a5fa; }
+.alertWatch     .alertScore { color: #fbbf24; }
+.alertAlert     .alertScore { color: #f87171; }
+
+.alertTitle {
+  font-size: 16px;
+  font-weight: 700;
+  color: rgba(224,240,255,0.9);
+}
+
+.alertSynthesis {
+  font-size: 14px;
+  color: rgba(180,210,255,0.65);
+  line-height: 1.5;
+}
+
+.alertMeta {
+  font-size: 12px;
+  color: rgba(180,210,255,0.4);
+  margin-top: auto;
+}
+
+/* ── Heatmap card ───────────────────────────────────────────────────────────── */
+
+.heatmapCard {
+  background: rgba(10,22,44,0.6);
+  border: 1px solid rgba(100,180,255,0.12);
+  border-radius: 18px;
+  padding: 20px;
+}
+
+.cardTitle {
+  font-size: 12px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.8px;
+  color: rgba(150,200,255,0.5);
+  margin: 0 0 14px;
+}
+
+.heatmapWrap {
+  position: relative;
+  width: 100%;
+  aspect-ratio: 16/9;
+  background: #020810;
+  border-radius: 10px;
+  overflow: hidden;
+}
+
+.heatmapCanvas {
+  width: 100%;
+  height: 100%;
+  display: block;
+}
+
+.neglectLabels {
+  display: flex;
+  justify-content: space-between;
+  margin-top: 8px;
+  font-size: 11px;
+  color: rgba(150,200,255,0.4);
+}
+
+/* ── Metrics grid ───────────────────────────────────────────────────────────── */
+
+.metricsSection {
+  padding: 24px 28px;
+}
+
+.sectionTitle {
+  font-size: 13px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.8px;
+  color: rgba(150,200,255,0.45);
+  margin: 0 0 16px;
+}
+
+.domainsGrid {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 14px;
+  margin-bottom: 24px;
+}
+
+@media (max-width: 1100px) {
+  .domainsGrid { grid-template-columns: repeat(2, 1fr); }
+}
+
+@media (max-width: 600px) {
+  .domainsGrid { grid-template-columns: 1fr; }
+}
+
+.domainCard {
+  background: rgba(10,22,44,0.6);
+  border: 1px solid rgba(100,180,255,0.10);
+  border-radius: 14px;
+  padding: 16px;
+}
+
+.domainHeader {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 10px;
+}
+
+.domainName {
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.7px;
+  color: rgba(150,200,255,0.5);
+}
+
+.domainScore {
+  font-size: 26px;
+  font-weight: 900;
+  line-height: 1;
+  margin: 0 0 4px;
+}
+
+.domainLabel {
+  font-size: 12px;
+  color: rgba(180,220,255,0.55);
+  margin-bottom: 10px;
+  line-height: 1.4;
+}
+
+.scoreBar {
+  height: 6px;
+  background: rgba(255,255,255,0.08);
+  border-radius: 3px;
+  overflow: hidden;
+}
+
+.scoreBarFill {
+  height: 100%;
+  border-radius: 3px;
+  transition: width 0.6s ease;
+}
+
+.confidenceBadge {
+  font-size: 10px;
+  padding: 2px 8px;
+  border-radius: 10px;
+  font-weight: 600;
+}
+
+.confidenceHigh {
+  background: rgba(16,185,129,0.15);
+  color: #34d399;
+}
+
+.confidenceLow {
+  background: rgba(251,191,36,0.15);
+  color: #fbbf24;
+}
+
+/* ── Charts row ─────────────────────────────────────────────────────────────── */
+
+.chartsRow {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 20px;
+  padding: 0 28px 24px;
+}
+
+@media (max-width: 900px) {
+  .chartsRow { grid-template-columns: 1fr; }
+}
+
+.chartCard {
+  background: rgba(10,22,44,0.6);
+  border: 1px solid rgba(100,180,255,0.10);
+  border-radius: 18px;
+  padding: 20px;
+}
+
+/* ── Metrics table ──────────────────────────────────────────────────────────── */
+
+.metricsTableSection {
+  padding: 0 28px 24px;
+}
+
+.metricsTable {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 10px;
+}
+
+@media (max-width: 700px) {
+  .metricsTable { grid-template-columns: 1fr; }
+}
+
+.metricRow {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  background: rgba(10,22,44,0.5);
+  border: 1px solid rgba(100,180,255,0.07);
+  border-radius: 10px;
+  padding: 10px 14px;
+}
+
+.metricLabel {
+  font-size: 13px;
+  color: rgba(180,220,255,0.55);
+}
+
+.metricValue {
+  font-size: 14px;
+  font-weight: 700;
+  font-family: monospace;
+  color: #e0f0ff;
+}
+
+/* ── Session timeline ───────────────────────────────────────────────────────── */
+
+.timelineSection {
+  padding: 0 28px 32px;
+}
+
+.timeline {
+  display: flex;
+  gap: 8px;
+  overflow-x: auto;
+  padding-bottom: 8px;
+}
+
+.timelineItem {
+  flex-shrink: 0;
+  width: 70px;
+  background: rgba(10,22,44,0.5);
+  border: 2px solid transparent;
+  border-radius: 12px;
+  padding: 10px 8px;
+  cursor: pointer;
+  text-align: center;
+  transition: border-color 0.15s;
+}
+
+.timelineItem:hover { border-color: rgba(100,180,255,0.35); }
+
+.timelineItemActive {
+  border-color: #3b82f6 !important;
+  background: rgba(59,130,246,0.12);
+}
+
+.timelineDate {
+  font-size: 10px;
+  color: rgba(150,200,255,0.45);
+  margin-bottom: 4px;
+}
+
+.timelineDot {
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  margin: 0 auto 4px;
+}
+
+.timelineScore {
+  font-size: 11px;
+  font-weight: 700;
+}
+
+/* ── No-data placeholder ────────────────────────────────────────────────────── */
+
+.noData {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  height: 50vh;
+  gap: 14px;
+  color: rgba(150,200,255,0.5);
+  text-align: center;
+  padding: 24px;
+}
+
+.noDataTitle {
+  font-size: 22px;
+  font-weight: 700;
+  color: rgba(224,240,255,0.6);
+}
+
+/* ── Radar chart wrapper ────────────────────────────────────────────────────── */
+
+.radarWrap {
+  height: 260px;
+}

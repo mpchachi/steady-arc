@@ -2,6 +2,8 @@ import React, { useState, useEffect, useRef, useCallback } from 'react'
 import { SeesoProvider, useSeeso } from './core/eyeTracking/SeesoProvider'
 import { CalibrationScreen } from './components/CalibrationScreen'
 import { CaveLanternGame } from './games/caveLantern/CaveLanternGame'
+import { FishingGame } from './games/fishing/FishingGame'
+import { GameSelector } from './components/GameSelector'
 import { SessionSummary } from './components/SessionSummary'
 import { DebugOverlay } from './components/DebugOverlay'
 import { useGaze } from './hooks/useGaze'
@@ -10,7 +12,7 @@ import { useInputManager } from './hooks/useInputManager'
 import { SEESO_LICENSE_KEY } from './config'
 import type { SessionData } from './core/telemetry/types'
 
-type AppScreen = 'calibration' | 'game' | 'summary'
+type AppScreen = 'calibration' | 'gameSelect' | 'cave' | 'fishing' | 'caveSummary'
 
 function AppInner() {
   const [screen, setScreen]         = useState<AppScreen>('calibration')
@@ -32,23 +34,15 @@ function AppInner() {
     return () => window.removeEventListener('keydown', handleKey)
   }, [])
 
-  // Restore saved calibration from localStorage on mount
-  useEffect(() => {
-    const saved = localStorage.getItem('seeso_calibration_v1')
-    if (!saved) return
-    applyCalibrationData(saved)
-      .then(() => setScreen('game'))
-      .catch(() => localStorage.removeItem('seeso_calibration_v1'))
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []) // run once
+  // Always start at calibration — no auto-restore
 
   const handleCalibrationComplete = useCallback((calibrationData: string) => {
-    // calibrationData is already saved to localStorage inside CalibrationFlowSeeso
     void applyCalibrationData(calibrationData)
-    setScreen('game')
+    setScreen('gameSelect')
     recordEvent('calibration_done', {})
-    recordEvent('game_start', {})
   }, [applyCalibrationData, recordEvent])
+
+  // ── Cave Lantern handlers ─────────────────────────────────────────────────
 
   const handlePercentRevealed = useCallback((pct: number) => {
     percentRevealedRef.current = pct
@@ -58,25 +52,25 @@ function AppInner() {
     recordEvent('treasure_found', { count })
   }, [recordEvent])
 
-  const handleGameEnd = useCallback((pct: number) => {
+  const handleCaveEnd = useCallback((pct: number) => {
     recordEvent('game_end', { percentRevealed: pct, trigger: 'win' })
     setSessionData(finalizeSession(pct))
-    setScreen('summary')
+    setScreen('caveSummary')
   }, [recordEvent, finalizeSession])
 
-  const handleEscape = useCallback(() => {
+  const handleCaveEscape = useCallback(() => {
     const pct = percentRevealedRef.current
     recordEvent('game_end', { percentRevealed: pct, trigger: 'escape' })
     setSessionData(finalizeSession(pct))
-    setScreen('summary')
+    setScreen('caveSummary')
   }, [recordEvent, finalizeSession])
 
-  const handlePlayAgain = useCallback(() => {
+  const handleCavePlayAgain = useCallback(() => {
     resetSession()
     percentRevealedRef.current = 0
     setSessionData(null)
-    setScreen('game')
     recordEvent('game_start', { replay: true })
+    setScreen('cave')
   }, [resetSession, recordEvent])
 
   const handleRecalibrate = useCallback(() => {
@@ -90,7 +84,14 @@ function AppInner() {
         <CalibrationScreen onComplete={handleCalibrationComplete} />
       )}
 
-      {screen === 'game' && (
+      {screen === 'gameSelect' && (
+        <GameSelector
+          onSelectCave={() => { recordEvent('game_start', {}); setScreen('cave') }}
+          onSelectFishing={() => setScreen('fishing')}
+        />
+      )}
+
+      {screen === 'cave' && (
         <>
           <CaveLanternGame
             gazeX={gaze?.filteredX ?? -1}
@@ -98,25 +99,30 @@ function AppInner() {
             isBlinking={gaze?.isBlinking ?? true}
             onPercentRevealed={handlePercentRevealed}
             onTreasureFound={handleTreasureFound}
-            onGameEnd={handleGameEnd}
-            onEscapePressed={handleEscape}
+            onGameEnd={handleCaveEnd}
+            onEscapePressed={handleCaveEscape}
           />
-
           <button style={styles.recalibBtn} onClick={handleRecalibrate}>
             Recalibrar
           </button>
         </>
       )}
 
-      {screen === 'summary' && sessionData && (
-        <SessionSummary session={sessionData} onPlayAgain={handlePlayAgain} />
+      {screen === 'caveSummary' && sessionData && (
+        <SessionSummary session={sessionData} onPlayAgain={handleCavePlayAgain} />
+      )}
+
+      {screen === 'fishing' && (
+        <FishingGame
+          onBackToMenu={() => setScreen('gameSelect')}
+        />
       )}
 
       <DebugOverlay
         gaze={gaze}
         iris={null}
         fps={fps}
-        visible={debugVisible && !cameraError}
+        visible={debugVisible && !cameraError && screen !== 'fishing'}
       />
     </>
   )
