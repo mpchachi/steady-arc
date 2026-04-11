@@ -2,10 +2,10 @@ import React, { useState, useEffect, useRef } from 'react'
 import styles from './SteadyArcDashboard.module.css'
 import { MOCK_SESSIONS } from '../utils/steadyArcData'
 import type { SteadyArcSession } from '../utils/steadyArcData'
-import { buildFromDynamo } from '../utils/steadyArcBridge'
+import { buildFromDynamo, generateClinicalReport } from '../utils/steadyArcBridge'
 import type { FishingSessionData } from '../types'
 import {
-  Activity, AlertTriangle, ArrowUpRight, Maximize2, X
+  Activity, AlertTriangle, ArrowUpRight, Maximize2, X, FileText
 } from 'lucide-react'
 import {
   LineChart, Line, ResponsiveContainer, BarChart, Bar, Cell,
@@ -162,6 +162,9 @@ export default function SteadyArcDashboard({ patientId, sessionData, onPlayAgain
   const [expandedChart, setExpandedChart] = useState<'radar'|'line'|null>(null)
   const [allSessions, setAllSessions] = useState<SteadyArcSession[]>(MOCK_SESSIONS)
   const [loading, setLoading] = useState(true)
+  const [report, setReport] = useState<string | null>(null)
+  const [reportLoading, setReportLoading] = useState(false)
+  const [showReport, setShowReport] = useState(false)
 
   // On mount: POST current session to DynamoDB, then fetch full history and run ML
   useEffect(() => {
@@ -169,13 +172,19 @@ export default function SteadyArcDashboard({ patientId, sessionData, onPlayAgain
       .then(sessions => {
         setAllSessions(sessions)
         setActiveSession(sessions.length - 1)
+        // Auto-generate report for the latest session
+        setReportLoading(true)
+        return generateClinicalReport(sessions[sessions.length - 1], sessions)
       })
+      .then(text => setReport(text))
       .catch(() => {
-        // fallback: show mock sessions
         setAllSessions(MOCK_SESSIONS)
         setActiveSession(MOCK_SESSIONS.length - 1)
       })
-      .finally(() => setLoading(false))
+      .finally(() => {
+        setLoading(false)
+        setReportLoading(false)
+      })
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
@@ -416,8 +425,16 @@ export default function SteadyArcDashboard({ patientId, sessionData, onPlayAgain
       <div className={styles.heroSection}>
         <div className={styles.headerTop}>
           <div className={styles.logoArea}>STEADYARC</div>
-          <div style={{ display:'flex', gap:'10px' }}>
+          <div style={{ display:'flex', gap:'10px', alignItems:'center' }}>
             <button onClick={onBackToMenu} style={{ background:'rgba(255,255,255,0.15)', border:'1px solid rgba(255,255,255,0.3)', borderRadius:'8px', color:'#fff', padding:'6px 14px', fontSize:'13px', cursor:'pointer', fontFamily:'system-ui' }}>← Menú</button>
+            <button
+              onClick={() => setShowReport(true)}
+              disabled={reportLoading || !report}
+              style={{ display:'flex', alignItems:'center', gap:'6px', background: report ? 'rgba(255,255,255,0.92)' : 'rgba(255,255,255,0.25)', border:'none', borderRadius:'8px', color: report ? '#1e293b' : 'rgba(255,255,255,0.6)', padding:'6px 14px', fontSize:'13px', fontWeight:600, cursor: report ? 'pointer' : 'default', fontFamily:'system-ui', transition:'all 0.2s' }}
+            >
+              <FileText size={14} />
+              {reportLoading ? 'Generating…' : report ? 'Clinical Report' : 'No report'}
+            </button>
             <button onClick={onPlayAgain} style={{ background:'#007aff', border:'none', borderRadius:'8px', color:'#fff', padding:'6px 14px', fontSize:'13px', fontWeight:700, cursor:'pointer', fontFamily:'system-ui' }}>Nueva sesión</button>
           </div>
         </div>
@@ -595,6 +612,20 @@ export default function SteadyArcDashboard({ patientId, sessionData, onPlayAgain
             </div>
             <div className={styles.modalChartArea}>
               {expandedChart === 'radar' ? renderRadarChart() : renderLineChart()}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {showReport && report && (
+        <div className={styles.modalOverlay} onClick={() => setShowReport(false)}>
+          <div className={styles.modalContent} onClick={e => e.stopPropagation()} style={{ maxWidth:'680px', maxHeight:'80vh', overflowY:'auto' }}>
+            <button className={styles.modalClose} onClick={() => setShowReport(false)}><X size={24} /></button>
+            <div className={styles.modalTitle} style={{ display:'flex', alignItems:'center', gap:'8px' }}>
+              <FileText size={18} /> Clinical Report — Session {session.id}
+            </div>
+            <div style={{ marginTop:'20px', fontFamily:'system-ui', fontSize:'15px', lineHeight:1.75, color:'#1e293b', whiteSpace:'pre-wrap' }}>
+              {report}
             </div>
           </div>
         </div>

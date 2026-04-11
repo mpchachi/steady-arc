@@ -205,6 +205,35 @@ function buildSteadyArcSessions(dynamo: DoctorSessionJSON[]): SteadyArcSession[]
   })
 }
 
+// ── 6. Bedrock clinical report ────────────────────────────────────────────────
+
+export async function generateClinicalReport(
+  session: SteadyArcSession,
+  allSessions: SteadyArcSession[],
+): Promise<string> {
+  const sessionIndex = allSessions.findIndex(s => s.id === session.id)
+  const sessionNumber = sessionIndex + 1
+  const totalSessions = allSessions.length
+
+  const res = await fetch(`${API_BASE_URL}/report`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      session_id:     session.id,
+      session_number: sessionNumber,
+      total_sessions: totalSessions,
+      metrics:        session.metrics,
+      radar:          session.radar,
+      alert_level:    session.globalStatus.alertLevel,
+      risk_score:     session.globalStatus.riskScore,
+      domains:        session.globalStatus.domains,
+    }),
+  })
+  if (!res.ok) throw new Error(`Report API ${res.status}`)
+  const data = await res.json()
+  return data.report as string
+}
+
 // ── Main export ───────────────────────────────────────────────────────────────
 
 export async function buildFromDynamo(
